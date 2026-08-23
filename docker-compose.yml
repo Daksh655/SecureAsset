@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: secureasset-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: secureasset
+      POSTGRES_USER: secureasset
+      POSTGRES_PASSWORD: secureasset_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - secureasset-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  secureasset-postgres-data:
