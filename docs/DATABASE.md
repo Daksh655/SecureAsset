@@ -94,7 +94,7 @@ Fields
 | razorpay_order_id | VARCHAR(100)             |  YES | NULL              | Razorpay order identifier   |
 | customer_id       | UUID                     |   NO | —                 | Customer who owns the order |
 | amount            | NUMERIC(14,2)            |   NO | —                 | Order amount                |
-| currency          | CHAR(3)                  |   NO | `INR`             | ISO currency code           |
+| currency          | VARCHAR(3)               |   NO | `INR`             | ISO currency code           |
 | status            | VARCHAR(30)              |   NO | —                 | Internal order status       |
 | created_at        | TIMESTAMP WITH TIME ZONE |   NO | current timestamp | Order creation time         |
 | updated_at        | TIMESTAMP WITH TIME ZONE |   NO | current timestamp | Last update time            |
@@ -132,7 +132,7 @@ Fields
 | order_id            | UUID                     |   NO | —                 | Associated order                 |
 | customer_id         | UUID                     |   NO | —                 | Customer associated with payment |
 | amount              | NUMERIC(14,2)            |   NO | —                 | Payment amount                   |
-| currency            | CHAR(3)                  |   NO | `INR`             | ISO currency code                |
+| currency            | VARCHAR(3)                  |   NO | `INR`             | ISO currency code                |
 | status              | VARCHAR(30)              |   NO | —                 | Payment status                   |
 | failure_reason      | VARCHAR(255)             |  YES | NULL              | Normalized failure reason        |
 | method              | VARCHAR(50)              |  YES | NULL              | Payment method                   |
