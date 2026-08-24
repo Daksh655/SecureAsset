@@ -521,3 +521,6 @@ controlled financial actions
 failure handling
 +
 measurable revenue recovery
+
+### Performance:
+Do not load database collections when a COUNT, EXISTS, or filtered query can answer the business question.

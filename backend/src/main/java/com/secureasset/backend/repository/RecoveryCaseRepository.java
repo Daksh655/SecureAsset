@@ -24,4 +24,8 @@ public interface RecoveryCaseRepository extends JpaRepository<RecoveryCase, UUID
             RecoveryCase.Priority priority,
             RecoveryCase.Status status
     );
+
+    long countByOrderId(UUID orderId);
+
+    boolean existsByOrderIdAndStatusIn(UUID orderId, List<RecoveryCase.Status> statuses);
 }

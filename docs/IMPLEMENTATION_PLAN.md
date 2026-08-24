@@ -393,8 +393,7 @@ Definition of Done
 No invalid financial action can bypass policy validation.
 
 11. Day 9 — Razorpay Test Mode Integration
-    Goals
-
+Goals
 Integrate SecureAsset with Razorpay Test APIs.
 
 Tasks
@@ -712,8 +711,7 @@ Audit
     Architecture diagram
     Demo video
     Failure demonstration
-    Final cleanup
-18. 
+    Final cleanup 
 18. Scope Control
 
 The following must not be added before the core workflow is complete:
