@@ -68,9 +68,11 @@ public class AuditLog {
     @Column(name = "tool_name", length = 100)
     private String toolName;
 
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
     @Column(name = "input_data", columnDefinition = "JSONB")
     private String inputData;
 
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
     @Column(name = "output_data", columnDefinition = "JSONB")
     private String outputData;
 
