@@ -1,6 +1,5 @@
 package com.secureasset.backend.integration;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.secureasset.backend.agent.tools.dto.RazorpayPaymentStatusResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +32,29 @@ public class RazorpayPaymentService {
     private final RestTemplate restTemplate;
     private final String authHeader;
 
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    public record RazorpayPaymentResponse(
+            String id,
+            String status,
+            Long amount,
+            String currency,
+            String method,
+            Boolean captured,
+            @com.fasterxml.jackson.annotation.JsonProperty("created_at") Long createdAt,
+            @com.fasterxml.jackson.annotation.JsonProperty("error_description") String errorDescription,
+            @com.fasterxml.jackson.annotation.JsonProperty("error_code") String errorCode
+    ) {}
+
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    public record RazorpayPaymentLinkResponse(
+            String id,
+            @com.fasterxml.jackson.annotation.JsonProperty("short_url") String shortUrl,
+            @com.fasterxml.jackson.annotation.JsonProperty("reference_id") String referenceId,
+            String status,
+            Long amount,
+            String currency
+    ) {}
+
     @org.springframework.beans.factory.annotation.Autowired
     public RazorpayPaymentService(
             @Value("${razorpay.api.key:default_key}") String apiKey,
@@ -61,7 +83,7 @@ public class RazorpayPaymentService {
             
             String url = API_BASE_URL + "/payments/" + paymentId;
             
-            ResponseEntity<JsonNode> response = restTemplate.exchange(url, HttpMethod.GET, request, JsonNode.class);
+            ResponseEntity<RazorpayPaymentResponse> response = restTemplate.exchange(url, HttpMethod.GET, request, RazorpayPaymentResponse.class);
             
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                 return Optional.of(normalize(response.getBody(), internalOrderId));
@@ -75,31 +97,24 @@ public class RazorpayPaymentService {
         }
     }
     
-    private RazorpayPaymentStatusResult normalize(JsonNode node, UUID internalOrderId) {
-        String paymentId = node.has("id") ? node.get("id").asText() : null;
-        String status = node.has("status") ? node.get("status").asText() : null;
+    private RazorpayPaymentStatusResult normalize(RazorpayPaymentResponse node, UUID internalOrderId) {
+        String paymentId = node.id();
+        String status = node.status();
         
         BigDecimal amount = null;
-        if (node.has("amount")) {
-            // Razorpay amounts are in subunits (paise for INR)
-            amount = new BigDecimal(node.get("amount").asText()).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+        if (node.amount() != null) {
+            amount = new BigDecimal(node.amount()).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
         }
         
-        String currency = node.has("currency") ? node.get("currency").asText() : null;
-        String method = node.has("method") ? node.get("method").asText() : null;
-        boolean captured = node.has("captured") && node.get("captured").asBoolean();
+        String currency = node.currency();
+        String method = node.method();
+        boolean captured = Boolean.TRUE.equals(node.captured());
         
         OffsetDateTime createdAt = null;
-        if (node.has("created_at")) {
-            long epochSeconds = node.get("created_at").asLong();
-            createdAt = OffsetDateTime.ofInstant(Instant.ofEpochSecond(epochSeconds), ZoneId.of("UTC"));
+        if (node.createdAt() != null) {
+            createdAt = OffsetDateTime.ofInstant(Instant.ofEpochSecond(node.createdAt()), ZoneId.of("UTC"));
         }
         
-        String failureReason = (node.has("error_description") && !node.get("error_description").isNull()) 
-                ? node.get("error_description").asText() : null;
-        String failureCode = (node.has("error_code") && !node.get("error_code").isNull()) 
-                ? node.get("error_code").asText() : null;
-
         return new RazorpayPaymentStatusResult(
                 paymentId,
                 internalOrderId,
@@ -109,8 +124,8 @@ public class RazorpayPaymentService {
                 method,
                 captured,
                 createdAt,
-                failureReason,
-                failureCode,
+                node.errorDescription(),
+                node.errorCode(),
                 OffsetDateTime.now()
         );
     }
@@ -159,18 +174,18 @@ public class RazorpayPaymentService {
         int maxAttempts = 2;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                ResponseEntity<JsonNode> response = restTemplate.exchange(url, HttpMethod.POST, request, JsonNode.class);
+                ResponseEntity<RazorpayPaymentLinkResponse> response = restTemplate.exchange(url, HttpMethod.POST, request, RazorpayPaymentLinkResponse.class);
                 if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                    JsonNode node = response.getBody();
+                    RazorpayPaymentLinkResponse node = response.getBody();
                     
-                    String id = node.has("id") ? node.get("id").asText() : null;
-                    String shortUrl = node.has("short_url") ? node.get("short_url").asText() : null;
-                    String status = node.has("status") ? node.get("status").asText() : null;
-                    String refId = node.has("reference_id") ? node.get("reference_id").asText() : null;
-                    String curr = node.has("currency") ? node.get("currency").asText() : null;
+                    String id = node.id();
+                    String shortUrl = node.shortUrl();
+                    String status = node.status();
+                    String refId = node.referenceId();
+                    String curr = node.currency();
                     BigDecimal resultAmount = null;
-                    if (node.has("amount")) {
-                        resultAmount = new BigDecimal(node.get("amount").asText()).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+                    if (node.amount() != null) {
+                        resultAmount = new BigDecimal(node.amount()).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
                     }
                     
                     return new PaymentLinkResult(true, id, shortUrl, refId, status, resultAmount, curr);
