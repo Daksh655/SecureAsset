@@ -17,9 +17,11 @@ import java.util.UUID;
 public class RecoveryCaseController {
 
     private final RecoveryCaseService recoveryCaseService;
+    private final com.secureasset.backend.service.RecoveryActionExecutionService recoveryActionExecutionService;
 
-    public RecoveryCaseController(RecoveryCaseService recoveryCaseService) {
+    public RecoveryCaseController(RecoveryCaseService recoveryCaseService, com.secureasset.backend.service.RecoveryActionExecutionService recoveryActionExecutionService) {
         this.recoveryCaseService = recoveryCaseService;
+        this.recoveryActionExecutionService = recoveryActionExecutionService;
     }
 
     @GetMapping
@@ -49,5 +51,63 @@ public class RecoveryCaseController {
     @GetMapping("/{id}/audit")
     public List<AuditLogDto> getCaseAuditLogs(@PathVariable UUID id) {
         return recoveryCaseService.getCaseAuditLogs(id);
+    }
+
+    public record ApproveRequestDto(
+            String actionType,
+            BigDecimal amount
+    ) {}
+
+    public record RejectRequestDto(
+            String reason
+    ) {}
+
+    public record ApiResponse(
+            boolean success,
+            String message
+    ) {}
+
+    @PostMapping("/{id}/approve")
+    public org.springframework.http.ResponseEntity<ApiResponse> approveAction(
+            @PathVariable UUID id,
+            @RequestBody ApproveRequestDto request) {
+        try {
+            if (request.actionType() == null || request.amount() == null) {
+                return org.springframework.http.ResponseEntity.badRequest().body(new ApiResponse(false, "actionType and amount are required"));
+            }
+            
+            com.secureasset.backend.entity.RecoveryAction.ActionType type = 
+                    com.secureasset.backend.entity.RecoveryAction.ActionType.valueOf(request.actionType());
+
+            recoveryActionExecutionService.approveActionByCase(id, type, request.amount());
+            return org.springframework.http.ResponseEntity.ok(new ApiResponse(true, "Action approved successfully"));
+        } catch (IllegalArgumentException e) {
+            return org.springframework.http.ResponseEntity.badRequest().body(new ApiResponse(false, e.getMessage()));
+        } catch (IllegalStateException e) {
+            return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).body(new ApiResponse(false, e.getMessage()));
+        } catch (Exception e) {
+            return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR).body(new ApiResponse(false, "Internal server error"));
+        }
+    }
+
+    @PostMapping("/{id}/reject")
+    public org.springframework.http.ResponseEntity<ApiResponse> rejectAction(
+            @PathVariable UUID id,
+            @RequestBody RejectRequestDto request) {
+        try {
+            String reason = request.reason();
+            if (reason == null || reason.trim().isEmpty()) {
+                reason = "Merchant rejected the recommendation without providing a reason.";
+            }
+
+            recoveryActionExecutionService.rejectActionByCase(id, reason);
+            return org.springframework.http.ResponseEntity.ok(new ApiResponse(true, "Action rejected successfully"));
+        } catch (IllegalArgumentException e) {
+            return org.springframework.http.ResponseEntity.badRequest().body(new ApiResponse(false, e.getMessage()));
+        } catch (IllegalStateException e) {
+            return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).body(new ApiResponse(false, e.getMessage()));
+        } catch (Exception e) {
+            return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR).body(new ApiResponse(false, "Internal server error"));
+        }
     }
 }

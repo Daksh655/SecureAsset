@@ -114,4 +114,84 @@ public class RazorpayPaymentService {
                 OffsetDateTime.now()
         );
     }
+
+    public record PaymentLinkResult(
+            boolean success,
+            String paymentLinkId,
+            String shortUrl,
+            String referenceId,
+            String status,
+            BigDecimal amount,
+            String currency
+    ) {
+        public static PaymentLinkResult failure() {
+            return new PaymentLinkResult(false, null, null, null, null, null, null);
+        }
+    }
+
+    public PaymentLinkResult createPaymentLink(
+            BigDecimal amount,
+            String currency,
+            String customerName,
+            String customerEmail,
+            String customerContact,
+            String referenceId
+    ) {
+        java.util.Map<String, Object> requestBody = new java.util.HashMap<>();
+        long amountInSubunits = amount.multiply(new BigDecimal("100")).setScale(0, RoundingMode.HALF_UP).longValue();
+        requestBody.put("amount", amountInSubunits);
+        requestBody.put("currency", currency != null ? currency : "INR");
+        requestBody.put("reference_id", referenceId);
+
+        java.util.Map<String, String> customerNode = new java.util.HashMap<>();
+        if (customerName != null) customerNode.put("name", customerName);
+        if (customerEmail != null) customerNode.put("email", customerEmail);
+        if (customerContact != null) customerNode.put("contact", customerContact);
+        requestBody.put("customer", customerNode);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", authHeader);
+        headers.set("Content-Type", "application/json");
+        HttpEntity<java.util.Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
+
+        String url = API_BASE_URL + "/payment_links";
+
+        int maxAttempts = 2;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                ResponseEntity<JsonNode> response = restTemplate.exchange(url, HttpMethod.POST, request, JsonNode.class);
+                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                    JsonNode node = response.getBody();
+                    
+                    String id = node.has("id") ? node.get("id").asText() : null;
+                    String shortUrl = node.has("short_url") ? node.get("short_url").asText() : null;
+                    String status = node.has("status") ? node.get("status").asText() : null;
+                    String refId = node.has("reference_id") ? node.get("reference_id").asText() : null;
+                    String curr = node.has("currency") ? node.get("currency").asText() : null;
+                    BigDecimal resultAmount = null;
+                    if (node.has("amount")) {
+                        resultAmount = new BigDecimal(node.get("amount").asText()).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+                    }
+                    
+                    return new PaymentLinkResult(true, id, shortUrl, refId, status, resultAmount, curr);
+                } else {
+                    log.warn("Razorpay API returned unexpected status: {}", response.getStatusCode());
+                    return PaymentLinkResult.failure();
+                }
+            } catch (org.springframework.web.client.HttpClientErrorException e) {
+                log.error("Razorpay 4xx error while creating payment link: {}", e.getStatusCode());
+                return PaymentLinkResult.failure();
+            } catch (org.springframework.web.client.HttpServerErrorException | org.springframework.web.client.ResourceAccessException e) {
+                if (attempt == maxAttempts) {
+                    log.error("Razorpay transient error, max retries reached: {}", e.getMessage());
+                    return PaymentLinkResult.failure();
+                }
+                log.warn("Razorpay transient error, retrying: {}", e.getMessage());
+            } catch (Exception e) {
+                log.error("Unexpected error calling Razorpay: {}", e.getMessage());
+                return PaymentLinkResult.failure();
+            }
+        }
+        return PaymentLinkResult.failure();
+    }
 }
