@@ -1,0 +1,42 @@
+.page-header {
+  margin-bottom: 2rem;
+}
+
+.toolbar {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.skeleton-pill {
+  height: 2.5rem;
+  width: 100px;
+  background-color: var(--border-light);
+  border-radius: var(--radius-full);
+}
+
+.skeleton-table.interactive {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  gap: 1rem;
+}
+
+.skeleton-table.interactive:hover {
+  border-color: var(--text-tertiary);
+}
+
+.skeleton-row {
+  height: 3rem;
+  background-color: var(--border-light);
+  border-radius: var(--radius-sm);
+  width: 100%;
+}
+
+.skeleton-row.header {
+  height: 2rem;
+  background-color: transparent;
+  border-bottom: 1px solid var(--border-color);
+  border-radius: 0;
+}

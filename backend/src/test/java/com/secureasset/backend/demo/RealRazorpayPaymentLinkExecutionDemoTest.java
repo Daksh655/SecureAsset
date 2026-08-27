@@ -21,6 +21,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -49,7 +50,6 @@ public class RealRazorpayPaymentLinkExecutionDemoTest {
     private RecoveryActionExecutionService executionService;
 
     @Test
-    @org.springframework.transaction.annotation.Transactional
     @EnabledIfEnvironmentVariable(named = "RUN_REAL_RAZORPAY_DEMO", matches = "true", disabledReason = "Real Razorpay demo is disabled unless RUN_REAL_RAZORPAY_DEMO=true")
     public void testDeterministicRazorpayExecution() {
         System.out.println("Starting Deterministic Real Razorpay Execution Demo...");
@@ -154,6 +154,16 @@ public class RealRazorpayPaymentLinkExecutionDemoTest {
         assertThat(hasRequest).isTrue();
         assertThat(hasResponse).isTrue();
         
+        // Assert AuditLog references the correctly persisted RecoveryAction
+        final UUID finalActionId = action.getId();
+        assertThat(logs.stream().allMatch(l -> l.getRecoveryAction() != null && l.getRecoveryAction().getId().equals(finalActionId))).isTrue();
+        
+        // 8. Verify No Transaction Rollback (Data persists)
+        // Since we removed @Transactional from this test method,
+        // the data is committed to PostgreSQL and will not be rolled back.
+        boolean inTransaction = org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive();
+        assertThat(inTransaction).isFalse();
+
         System.out.println("Deterministic Execution Test completed successfully.");
     }
 }

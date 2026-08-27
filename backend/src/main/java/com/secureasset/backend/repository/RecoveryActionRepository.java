@@ -18,7 +18,8 @@ public interface RecoveryActionRepository
     List<RecoveryAction> findByStatus(RecoveryAction.Status status);
 
     boolean existsByRecoveryCaseIdAndActionType(
-            UUID recoveryCaseId,
-            RecoveryAction.ActionType actionType
+            UUID recoveryCaseId, RecoveryAction.ActionType actionType
     );
+
+    RecoveryAction findByRazorpayReference(String razorpayReference);
 }

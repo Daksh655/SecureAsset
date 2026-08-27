@@ -35,7 +35,12 @@ class RecoveryActionExecutionServiceTest {
         actionRepository = mock(RecoveryActionRepository.class);
         auditLogRepository = mock(AuditLogRepository.class);
         razorpayPaymentService = mock(RazorpayPaymentService.class);
-        service = new RecoveryActionExecutionService(caseRepository, actionRepository, auditLogRepository, razorpayPaymentService);
+        service = new RecoveryActionExecutionService(actionRepository, caseRepository, auditLogRepository, razorpayPaymentService);
+
+        when(actionRepository.save(any(RecoveryAction.class))).thenAnswer(i -> i.getArgument(0));
+        when(caseRepository.save(any(RecoveryCase.class))).thenAnswer(i -> i.getArgument(0));
+        
+        service.setSelf(service);
     }
 
     @Test
@@ -196,5 +201,35 @@ class RecoveryActionExecutionServiceTest {
         assertThatThrownBy(() -> service.approveAction(actionId))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("not pending approval");
+    }
+
+    @Test
+    void testPersistenceOrdering() {
+        UUID caseId = UUID.randomUUID();
+        RecoveryCase rc = new RecoveryCase();
+        rc.setId(caseId);
+        rc.setEligibility(RecoveryCase.Eligibility.ELIGIBLE);
+        rc.setStatus(RecoveryCase.Status.NEW);
+
+        when(caseRepository.findById(caseId)).thenReturn(Optional.of(rc));
+
+        RecoveryAction savedAction = new RecoveryAction();
+        savedAction.setId(UUID.randomUUID());
+        savedAction.setRecoveryCase(rc);
+        when(actionRepository.save(any(RecoveryAction.class))).thenReturn(savedAction);
+        when(caseRepository.save(any(RecoveryCase.class))).thenReturn(rc);
+
+        service.proposeAction(caseId, RecoveryAction.ActionType.CREATE_PAYMENT_LINK, new BigDecimal("7500.00"));
+
+        org.mockito.InOrder inOrder = inOrder(actionRepository, auditLogRepository);
+        inOrder.verify(actionRepository).save(any(RecoveryAction.class));
+        inOrder.verify(auditLogRepository).save(any(AuditLog.class));
+
+        ArgumentCaptor<AuditLog> auditCaptor = ArgumentCaptor.forClass(AuditLog.class);
+        verify(auditLogRepository).save(auditCaptor.capture());
+        AuditLog savedAudit = auditCaptor.getValue();
+        
+        assertThat(savedAudit.getRecoveryAction()).isSameAs(savedAction);
+        assertThat(savedAudit.getRecoveryAction().getId()).isNotNull();
     }
 }

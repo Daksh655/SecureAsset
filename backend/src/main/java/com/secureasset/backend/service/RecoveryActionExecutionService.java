@@ -9,7 +9,11 @@ import com.secureasset.backend.repository.RecoveryActionRepository;
 import com.secureasset.backend.repository.RecoveryCaseRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -20,24 +24,32 @@ import java.util.UUID;
 public class RecoveryActionExecutionService {
 
     private static final Logger log = LoggerFactory.getLogger(RecoveryActionExecutionService.class);
-    private static final BigDecimal AUTO_EXECUTE_LIMIT = new BigDecimal("10000.00");
+    
+    private static final BigDecimal AUTO_EXECUTE_LIMIT = new BigDecimal("5000.00");
 
-    private final RecoveryCaseRepository caseRepository;
     private final RecoveryActionRepository actionRepository;
+    private final RecoveryCaseRepository caseRepository;
     private final AuditLogRepository auditLogRepository;
     private final RazorpayPaymentService razorpayPaymentService;
+    
+    private RecoveryActionExecutionService self;
 
-    public RecoveryActionExecutionService(
-            RecoveryCaseRepository caseRepository,
-            RecoveryActionRepository actionRepository,
-            AuditLogRepository auditLogRepository,
-            RazorpayPaymentService razorpayPaymentService) {
-        this.caseRepository = caseRepository;
+    public RecoveryActionExecutionService(RecoveryActionRepository actionRepository, 
+                                          RecoveryCaseRepository caseRepository,
+                                          AuditLogRepository auditLogRepository,
+                                          RazorpayPaymentService razorpayPaymentService) {
         this.actionRepository = actionRepository;
+        this.caseRepository = caseRepository;
         this.auditLogRepository = auditLogRepository;
         this.razorpayPaymentService = razorpayPaymentService;
     }
 
+    @Autowired
+    public void setSelf(@Lazy RecoveryActionExecutionService self) {
+        this.self = self;
+    }
+
+    @Transactional
     public RecoveryAction proposeAction(UUID caseId, RecoveryAction.ActionType actionType, BigDecimal amount) {
         RecoveryCase rc = caseRepository.findById(caseId)
                 .orElseThrow(() -> new IllegalArgumentException("Recovery case not found"));
@@ -75,18 +87,25 @@ public class RecoveryActionExecutionService {
             action.setStatus(RecoveryAction.Status.APPROVED);
             action.setApprovalStatus(RecoveryAction.ApprovalStatus.NOT_REQUIRED);
             action.setApprovedAt(OffsetDateTime.now());
-            logAudit(rc, action, AuditLog.EventType.ACTION_APPROVED, "Automatic approval granted", true);
         } else {
             action.setStatus(RecoveryAction.Status.PENDING);
             action.setApprovalStatus(RecoveryAction.ApprovalStatus.PENDING);
             rc.setStatus(RecoveryCase.Status.PENDING_APPROVAL);
+        }
+
+        rc = caseRepository.save(rc);
+        action = actionRepository.save(action);
+
+        if (!requiresApproval) {
+            logAudit(rc, action, AuditLog.EventType.ACTION_APPROVED, "Automatic approval granted", true);
+        } else {
             logAudit(rc, action, AuditLog.EventType.ACTION_APPROVAL_REQUESTED, "Manual approval required", true);
         }
 
-        caseRepository.save(rc);
-        return actionRepository.save(action);
+        return action;
     }
 
+    @Transactional
     public void approveAction(UUID actionId) {
         RecoveryAction action = actionRepository.findById(actionId)
                 .orElseThrow(() -> new IllegalArgumentException("Action not found"));
@@ -100,10 +119,13 @@ public class RecoveryActionExecutionService {
         action.setApprovedAt(OffsetDateTime.now());
         
         RecoveryCase rc = action.getRecoveryCase();
+        
+        action = actionRepository.save(action);
+        
         logAudit(rc, action, AuditLog.EventType.ACTION_APPROVED, "Merchant approved the action", true);
-        actionRepository.save(action);
     }
 
+    @Transactional
     public void rejectAction(UUID actionId, String reason) {
         RecoveryAction action = actionRepository.findById(actionId)
                 .orElseThrow(() -> new IllegalArgumentException("Action not found"));
@@ -118,12 +140,14 @@ public class RecoveryActionExecutionService {
 
         RecoveryCase rc = action.getRecoveryCase();
         rc.setStatus(RecoveryCase.Status.ACTION_REQUIRED);
+        
+        rc = caseRepository.save(rc);
+        action = actionRepository.save(action);
+        
         logAudit(rc, action, AuditLog.EventType.ACTION_REJECTED, "Merchant rejected the action: " + reason, true);
-
-        actionRepository.save(action);
-        caseRepository.save(rc);
     }
 
+    @Transactional
     public void approveActionByCase(UUID caseId, RecoveryAction.ActionType actionType, BigDecimal amount) {
         RecoveryAction pendingAction = actionRepository.findByRecoveryCaseId(caseId).stream()
                 .filter(a -> a.getStatus() == RecoveryAction.Status.PENDING)
@@ -134,31 +158,68 @@ public class RecoveryActionExecutionService {
             throw new IllegalArgumentException("Action details do not match the pending recommendation.");
         }
 
-        approveAction(pendingAction.getId());
+        self.approveAction(pendingAction.getId());
     }
 
+    @Transactional
     public void rejectActionByCase(UUID caseId, String reason) {
         RecoveryAction pendingAction = actionRepository.findByRecoveryCaseId(caseId).stream()
                 .filter(a -> a.getStatus() == RecoveryAction.Status.PENDING)
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("No pending action found for this case"));
 
-        rejectAction(pendingAction.getId(), reason);
+        self.rejectAction(pendingAction.getId(), reason);
     }
 
+    public record ExecutionContext(UUID actionId, BigDecimal amount, String custName, String custEmail, String custContact, RecoveryAction.ActionType actionType) {}
+
     public void executeAction(UUID actionId) {
+        ExecutionContext ctx = self.prepareExecution(actionId);
+        if (ctx == null) {
+            return; // Idempotently skipped or failed preparation
+        }
+
+        if (ctx.actionType() == RecoveryAction.ActionType.CREATE_PAYMENT_LINK) {
+            RazorpayPaymentService.PaymentLinkResult result = null;
+            try {
+                result = razorpayPaymentService.createPaymentLink(
+                        ctx.amount(),
+                        "INR",
+                        ctx.custName(),
+                        ctx.custEmail(),
+                        ctx.custContact(),
+                        ctx.actionId().toString()
+                );
+            } catch (Exception e) {
+                log.error("Failed external API call", e);
+                self.handleExecutionFailure(ctx.actionId(), "Failed to create payment link: " + e.getMessage(), AuditLog.EventType.ACTION_BLOCKED);
+                return;
+            }
+
+            if (result.success()) {
+                self.handleExecutionSuccess(ctx.actionId(), result.paymentLinkId(), result.shortUrl());
+            } else {
+                self.handleExecutionFailure(ctx.actionId(), "Payment link creation failed.", AuditLog.EventType.RAZORPAY_RESPONSE);
+            }
+        } else {
+            self.handleExecutionFailure(ctx.actionId(), "Unsupported action type for automatic execution", AuditLog.EventType.ACTION_BLOCKED);
+        }
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public ExecutionContext prepareExecution(UUID actionId) {
         RecoveryAction action = actionRepository.findById(actionId)
                 .orElseThrow(() -> new IllegalArgumentException("Action not found"));
-
-        RecoveryCase rc = action.getRecoveryCase();
 
         // 1. Idempotency Check
         if (action.getStatus() == RecoveryAction.Status.SUCCESS || 
             action.getStatus() == RecoveryAction.Status.EXECUTING || 
             action.getStatus() == RecoveryAction.Status.FAILED) {
             log.info("Action {} is already processed or processing (Status: {}). Idempotently skipping.", actionId, action.getStatus());
-            return;
+            return null;
         }
+
+        RecoveryCase rc = action.getRecoveryCase();
 
         // 2. Pre-execution validations
         if (action.getStatus() != RecoveryAction.Status.APPROVED) {
@@ -192,58 +253,58 @@ public class RecoveryActionExecutionService {
             throw new IllegalStateException("A recovery action is already active for this case.");
         }
 
-        // 3. Mark EXECUTING to prevent race conditions
+        // 3. Mark EXECUTING
         action.setStatus(RecoveryAction.Status.EXECUTING);
         action.setExecutedAt(OffsetDateTime.now());
         rc.setStatus(RecoveryCase.Status.EXECUTING);
-        actionRepository.save(action);
-        caseRepository.save(rc);
+        
+        rc = caseRepository.save(rc);
+        action = actionRepository.save(action);
 
         logAudit(rc, action, AuditLog.EventType.RAZORPAY_REQUEST, "Initiating external execution: " + action.getActionType(), true);
 
-        // 4. Execute external API call
-        if (action.getActionType() == RecoveryAction.ActionType.CREATE_PAYMENT_LINK) {
-            String custName = rc.getCustomer() != null ? rc.getCustomer().getName() : null;
-            String custEmail = rc.getCustomer() != null ? rc.getCustomer().getEmail() : null;
-            String custContact = rc.getCustomer() != null ? rc.getCustomer().getPhone() : null;
+        // Map lazy properties to detached records while session is active
+        String custName = rc.getCustomer() != null ? rc.getCustomer().getName() : null;
+        String custEmail = rc.getCustomer() != null ? rc.getCustomer().getEmail() : null;
+        String custContact = rc.getCustomer() != null ? rc.getCustomer().getPhone() : null;
 
-            RazorpayPaymentService.PaymentLinkResult result = razorpayPaymentService.createPaymentLink(
-                    action.getAmount(),
-                    "INR",
-                    custName,
-                    custEmail,
-                    custContact,
-                    action.getId().toString()
-            );
+        return new ExecutionContext(action.getId(), action.getAmount(), custName, custEmail, custContact, action.getActionType());
+    }
 
-            // 5. Handle result
-            action.setCompletedAt(OffsetDateTime.now());
-            if (result.success()) {
-                action.setStatus(RecoveryAction.Status.SUCCESS);
-                action.setRazorpayReference(result.paymentLinkId());
-                action.setResult(result.shortUrl());
-                rc.setStatus(RecoveryCase.Status.EXECUTING);
-                
-                logAudit(rc, action, AuditLog.EventType.RAZORPAY_RESPONSE, "Payment link created successfully: " + result.paymentLinkId(), true);
-            } else {
-                action.setStatus(RecoveryAction.Status.FAILED);
-                action.setErrorMessage("Failed to create payment link.");
-                rc.setStatus(RecoveryCase.Status.ACTION_REQUIRED);
-                
-                logAudit(rc, action, AuditLog.EventType.RAZORPAY_RESPONSE, "Payment link creation failed.", false);
-            }
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void handleExecutionSuccess(UUID actionId, String razorpayReference, String resultUrl) {
+        RecoveryAction action = actionRepository.findById(actionId).orElseThrow();
+        RecoveryCase rc = action.getRecoveryCase();
+        
+        action.setCompletedAt(OffsetDateTime.now());
+        action.setStatus(RecoveryAction.Status.SUCCESS);
+        action.setRazorpayReference(razorpayReference);
+        action.setResult(resultUrl);
+        
+        // Ensure case is EXECUTING, do not mark as RECOVERED yet
+        rc.setStatus(RecoveryCase.Status.EXECUTING);
+        
+        rc = caseRepository.save(rc);
+        action = actionRepository.save(action);
+        
+        logAudit(rc, action, AuditLog.EventType.RAZORPAY_RESPONSE, "Payment link created successfully: " + razorpayReference, true);
+    }
 
-            actionRepository.save(action);
-            caseRepository.save(rc);
-        } else {
-            action.setStatus(RecoveryAction.Status.FAILED);
-            action.setErrorMessage("Unsupported action type for automatic execution");
-            action.setCompletedAt(OffsetDateTime.now());
-            rc.setStatus(RecoveryCase.Status.ACTION_REQUIRED);
-            actionRepository.save(action);
-            caseRepository.save(rc);
-            logAudit(rc, action, AuditLog.EventType.ACTION_BLOCKED, "Unsupported action type executed", false);
-        }
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void handleExecutionFailure(UUID actionId, String errorMessage, AuditLog.EventType auditType) {
+        RecoveryAction action = actionRepository.findById(actionId).orElseThrow();
+        RecoveryCase rc = action.getRecoveryCase();
+        
+        action.setStatus(RecoveryAction.Status.FAILED);
+        action.setErrorMessage(errorMessage);
+        action.setCompletedAt(OffsetDateTime.now());
+        
+        rc.setStatus(RecoveryCase.Status.ACTION_REQUIRED);
+        
+        rc = caseRepository.save(rc);
+        action = actionRepository.save(action);
+        
+        logAudit(rc, action, auditType, errorMessage, false);
     }
 
     private void logAudit(RecoveryCase rc, RecoveryAction action, AuditLog.EventType type, String message, boolean success) {

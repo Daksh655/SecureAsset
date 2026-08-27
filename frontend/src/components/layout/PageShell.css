@@ -1,0 +1,19 @@
+.page-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.page-content {
+  flex: 1;
+  width: 100%;
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 8rem 2rem 4rem; /* Top padding to account for fixed navbar */
+}
+
+@media (max-width: 768px) {
+  .page-content {
+    padding: 6rem 1rem 2rem;
+  }
+}
