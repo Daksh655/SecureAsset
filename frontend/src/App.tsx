@@ -13,7 +13,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Overview />} />
         <Route path="/cases" element={<RecoveryCases />} />
-        <Route path="/cases/:caseId" element={<RecoveryCaseDetail />} />
+        <Route path="/recovery-cases/:caseId" element={<RecoveryCaseDetail />} />
         <Route path="/actions" element={<RecoveryActions />} />
         <Route path="/audit" element={<AuditLogs />} />
       </Routes>

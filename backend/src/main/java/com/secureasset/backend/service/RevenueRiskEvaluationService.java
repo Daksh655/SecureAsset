@@ -59,6 +59,36 @@ public class RevenueRiskEvaluationService {
         }
     }
 
+    public int evaluateDemoFailedPayments(java.util.UUID datasetId) {
+        int page = 0;
+        int size = 100;
+        int processedCount = 0;
+        
+        while (true) {
+            Page<Payment> paymentPage = paymentRepository.findByStatusAndCustomerDatasetId(
+                    Payment.PaymentStatus.FAILED, datasetId, PageRequest.of(page, size));
+            
+            if (paymentPage.isEmpty()) {
+                break;
+            }
+            
+            processedCount += paymentPage.getNumberOfElements();
+            
+            transactionTemplate.execute(status -> {
+                for (Payment payment : paymentPage.getContent()) {
+                    processFailedPayment(payment);
+                }
+                return null;
+            });
+            
+            if (!paymentPage.hasNext()) {
+                break;
+            }
+            page++;
+        }
+        return processedCount;
+    }
+
     private void processFailedPayment(Payment payment) {
         // Prevent duplicate active cases for the same order
         boolean duplicateActiveCaseExists = recoveryCaseRepository.existsByOrderIdAndStatusIn(

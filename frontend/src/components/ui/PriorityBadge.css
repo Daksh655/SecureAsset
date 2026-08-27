@@ -1,0 +1,32 @@
+.priority-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.badge-high {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: var(--accent-red);
+}
+
+.badge-medium {
+  background-color: rgba(245, 158, 11, 0.1);
+  color: var(--accent-orange);
+}
+
+.badge-low {
+  background-color: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.badge-default {
+  background-color: var(--bg-secondary);
+  color: var(--text-secondary);
+}

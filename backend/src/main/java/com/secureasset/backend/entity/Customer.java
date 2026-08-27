@@ -7,6 +7,9 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -17,6 +20,10 @@ public class Customer {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "dataset_id")
+    private DemoDataset dataset;
 
     @Column(name = "razorpay_customer_id", unique = true, length = 100)
     private String razorpayCustomerId;
@@ -93,5 +100,13 @@ public class Customer {
 
     public void setUpdatedAt(OffsetDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public DemoDataset getDataset() {
+        return dataset;
+    }
+
+    public void setDataset(DemoDataset dataset) {
+        this.dataset = dataset;
     }
 }

@@ -32,3 +32,18 @@ export const formatNumber = (value: number | string): string => {
   
   return new Intl.NumberFormat('en-IN').format(numericValue);
 };
+
+export const formatDate = (isoString: string): string => {
+  try {
+    const date = new Date(isoString);
+    return new Intl.DateTimeFormat('en-IN', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(date);
+  } catch (e) {
+    return isoString;
+  }
+};

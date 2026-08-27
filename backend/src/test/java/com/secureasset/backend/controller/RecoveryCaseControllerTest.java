@@ -8,6 +8,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+import com.secureasset.backend.service.RevenueRiskEvaluationService;
 
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -19,20 +22,28 @@ import static org.mockito.Mockito.mock;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.mockito.Mockito.when;
 
 class RecoveryCaseControllerTest {
 
     private MockMvc mockMvc;
     private ObjectMapper objectMapper;
+    @Mock
     private RecoveryCaseService recoveryCaseService;
+
+    @Mock
     private RecoveryActionExecutionService executionService;
+
+    @Mock
+    private RevenueRiskEvaluationService revenueRiskEvaluationService;
+
+    private RecoveryCaseController recoveryCaseController;
 
     @BeforeEach
     void setUp() {
-        recoveryCaseService = mock(RecoveryCaseService.class);
-        executionService = mock(RecoveryActionExecutionService.class);
-        RecoveryCaseController controller = new RecoveryCaseController(recoveryCaseService, executionService);
-        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+        MockitoAnnotations.openMocks(this);
+        recoveryCaseController = new RecoveryCaseController(recoveryCaseService, executionService, revenueRiskEvaluationService);
+        mockMvc = MockMvcBuilders.standaloneSetup(recoveryCaseController).build();
         objectMapper = new ObjectMapper();
     }
 
@@ -115,5 +126,15 @@ class RecoveryCaseControllerTest {
                 .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false));
+    }
+    @Test
+    void investigateCaseSuccess() throws Exception {
+        UUID caseId = UUID.randomUUID();
+        com.secureasset.backend.dto.RecoveryCaseDetailDto mockDto = mock(com.secureasset.backend.dto.RecoveryCaseDetailDto.class);
+        
+        when(recoveryCaseService.investigateCase(caseId)).thenReturn(mockDto);
+
+        mockMvc.perform(post("/api/recovery-cases/{id}/investigate", caseId))
+                .andExpect(status().isOk());
     }
 }

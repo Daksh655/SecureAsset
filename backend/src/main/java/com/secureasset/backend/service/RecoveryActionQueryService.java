@@ -4,6 +4,7 @@ import com.secureasset.backend.dto.PageResponse;
 import com.secureasset.backend.dto.RecoveryActionSummaryDto;
 import com.secureasset.backend.entity.RecoveryAction;
 import com.secureasset.backend.repository.RecoveryActionRepository;
+import com.secureasset.backend.repository.DemoDatasetRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -20,9 +21,11 @@ import java.util.stream.Collectors;
 public class RecoveryActionQueryService {
 
     private final RecoveryActionRepository recoveryActionRepository;
+    private final DemoDatasetRepository demoDatasetRepository;
 
-    public RecoveryActionQueryService(RecoveryActionRepository recoveryActionRepository) {
+    public RecoveryActionQueryService(RecoveryActionRepository recoveryActionRepository, DemoDatasetRepository demoDatasetRepository) {
         this.recoveryActionRepository = recoveryActionRepository;
+        this.demoDatasetRepository = demoDatasetRepository;
     }
 
     public PageResponse<RecoveryActionSummaryDto> searchActions(
@@ -32,13 +35,18 @@ public class RecoveryActionQueryService {
             int page,
             int size
     ) {
+        if (!demoDatasetRepository.existsById(DatasetService.DEMO_DATASET_ID)) {
+            return new PageResponse<>(List.of(), 0, size, 0, 0);
+        }
+
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "requestedAt"));
 
         RecoveryAction.Status statusEnum = status != null && !status.trim().isEmpty() ? RecoveryAction.Status.valueOf(status) : null;
         RecoveryAction.ApprovalStatus approvalStatusEnum = approvalStatus != null && !approvalStatus.trim().isEmpty() ? RecoveryAction.ApprovalStatus.valueOf(approvalStatus) : null;
         RecoveryAction.ActionType actionTypeEnum = actionType != null && !actionType.trim().isEmpty() ? RecoveryAction.ActionType.valueOf(actionType) : null;
 
-        Page<RecoveryAction> actionPage = recoveryActionRepository.searchActions(statusEnum, approvalStatusEnum, actionTypeEnum, pageable);
+        Page<RecoveryAction> actionPage = recoveryActionRepository.searchActionsScoped(
+                DatasetService.DEMO_DATASET_ID, statusEnum, approvalStatusEnum, actionTypeEnum, pageable);
 
         List<RecoveryActionSummaryDto> content = actionPage.getContent().stream()
                 .map(this::mapToDto)

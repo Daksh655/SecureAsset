@@ -5,11 +5,13 @@ import com.secureasset.backend.dto.PageResponse;
 import com.secureasset.backend.dto.RecoveryCaseDetailDto;
 import com.secureasset.backend.dto.RecoveryCaseSummaryDto;
 import com.secureasset.backend.entity.Customer;
+import com.secureasset.backend.entity.DemoDataset;
 import com.secureasset.backend.entity.RecoveryCase;
 import com.secureasset.backend.repository.AuditLogRepository;
 import com.secureasset.backend.repository.PaymentRepository;
 import com.secureasset.backend.repository.RecoveryActionRepository;
 import com.secureasset.backend.repository.RecoveryCaseRepository;
+import com.secureasset.backend.repository.DemoDatasetRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,17 +44,26 @@ class RecoveryCaseServiceTest {
     private AuditLogRepository auditLogRepository;
     @Mock
     private PaymentRepository paymentRepository;
+    @Mock
+    private DemoDatasetRepository demoDatasetRepository;
+    @Mock
+    private com.secureasset.backend.agent.AgentService agentService;
 
     @InjectMocks
     private RecoveryCaseService service;
 
     private RecoveryCase recoveryCase;
+    private DemoDataset demoDataset;
 
     @BeforeEach
     void setUp() {
+        demoDataset = new DemoDataset();
+        demoDataset.setId(DatasetService.DEMO_DATASET_ID);
+
         Customer c = new Customer();
         c.setId(UUID.randomUUID());
         c.setName("Test");
+        c.setDataset(demoDataset);
         
         recoveryCase = new RecoveryCase();
         recoveryCase.setId(UUID.randomUUID());
@@ -66,8 +77,9 @@ class RecoveryCaseServiceTest {
 
     @Test
     void testSearchCasesPaginatedAndHighPriority() {
-        when(recoveryCaseRepository.searchCases(
-                eq(RecoveryCase.Priority.HIGH), any(), any(), any(), any(), any(), any(Pageable.class)
+        when(demoDatasetRepository.existsById(DatasetService.DEMO_DATASET_ID)).thenReturn(true);
+        when(recoveryCaseRepository.searchCasesScoped(
+                eq(DatasetService.DEMO_DATASET_ID), eq(RecoveryCase.Priority.HIGH), any(), any(), any(), any(), any(), any(Pageable.class)
         )).thenReturn(new PageImpl<>(List.of(recoveryCase)));
 
         PageResponse<RecoveryCaseSummaryDto> response = service.searchCases(
@@ -99,12 +111,13 @@ class RecoveryCaseServiceTest {
 
     @Test
     void testDashboardMetricsCalculation() {
-        when(paymentRepository.count()).thenReturn(100L);
-        when(recoveryCaseRepository.count()).thenReturn(10L);
-        when(recoveryCaseRepository.countByPriority(RecoveryCase.Priority.HIGH)).thenReturn(5L);
-        when(recoveryCaseRepository.sumRiskAmount()).thenReturn(new BigDecimal("10000.00"));
+        when(demoDatasetRepository.existsById(DatasetService.DEMO_DATASET_ID)).thenReturn(true);
+        when(paymentRepository.countByCustomerDatasetId(DatasetService.DEMO_DATASET_ID)).thenReturn(100L);
+        when(recoveryCaseRepository.countByCustomerDatasetId(DatasetService.DEMO_DATASET_ID)).thenReturn(10L);
+        when(recoveryCaseRepository.countByPriorityAndCustomerDatasetId(RecoveryCase.Priority.HIGH, DatasetService.DEMO_DATASET_ID)).thenReturn(5L);
+        when(recoveryCaseRepository.sumRiskAmountByCustomerDatasetId(DatasetService.DEMO_DATASET_ID)).thenReturn(new BigDecimal("10000.00"));
         
-        when(recoveryCaseRepository.sumRiskAmountByStatuses(any()))
+        when(recoveryCaseRepository.sumRiskAmountByStatusesAndCustomerDatasetId(any(), eq(DatasetService.DEMO_DATASET_ID)))
                 .thenReturn(new BigDecimal("8000.00")) // active
                 .thenReturn(new BigDecimal("2000.00")); // recovered
 
@@ -122,8 +135,8 @@ class RecoveryCaseServiceTest {
     
     @Test
     void testGetActions() {
-        when(recoveryCaseRepository.existsById(recoveryCase.getId())).thenReturn(true);
-        when(recoveryActionRepository.findByRecoveryCaseIdOrderByRequestedAtDesc(recoveryCase.getId()))
+        when(recoveryCaseRepository.findById(recoveryCase.getId())).thenReturn(Optional.of(recoveryCase));
+        when(recoveryActionRepository.findByRecoveryCaseId(recoveryCase.getId()))
                 .thenReturn(Collections.emptyList());
         
         assertTrue(service.getCaseActions(recoveryCase.getId()).isEmpty());
@@ -131,10 +144,33 @@ class RecoveryCaseServiceTest {
     
     @Test
     void testGetAudit() {
-        when(recoveryCaseRepository.existsById(recoveryCase.getId())).thenReturn(true);
+        DemoDataset ds = new DemoDataset();
+        ds.setId(DatasetService.DEMO_DATASET_ID);
+        recoveryCase.getCustomer().setDataset(ds);
+        when(recoveryCaseRepository.findById(recoveryCase.getId())).thenReturn(Optional.of(recoveryCase));
         when(auditLogRepository.findByRecoveryCaseIdOrderByCreatedAtAsc(recoveryCase.getId()))
                 .thenReturn(Collections.emptyList());
         
         assertTrue(service.getCaseAuditLogs(recoveryCase.getId()).isEmpty());
+    }
+    
+    @Test
+    void testInvestigateCaseSuccess() {
+        when(recoveryCaseRepository.findById(recoveryCase.getId())).thenReturn(Optional.of(recoveryCase));
+        com.secureasset.backend.agent.dto.AgentRecommendation rec = 
+                new com.secureasset.backend.agent.dto.AgentRecommendation(
+                        RecoveryCase.AgentRecommendation.NO_ACTION, 95, "Test reason", Collections.emptyList()
+                );
+        when(agentService.investigateRecoveryCase(recoveryCase.getId())).thenReturn(rec);
+        when(recoveryCaseRepository.save(recoveryCase)).thenReturn(recoveryCase);
+        
+        RecoveryCaseDetailDto dto = service.investigateCase(recoveryCase.getId());
+        
+        assertEquals(RecoveryCase.AgentStatus.ANALYZED.name(), dto.agentStatus());
+        assertEquals("NO_ACTION", dto.agentRecommendation());
+        assertEquals(new BigDecimal("95"), dto.agentConfidence());
+        assertEquals("Test reason", dto.agentReason());
+        // Verify state is saved
+        org.mockito.Mockito.verify(recoveryCaseRepository, org.mockito.Mockito.times(1)).save(recoveryCase);
     }
 }

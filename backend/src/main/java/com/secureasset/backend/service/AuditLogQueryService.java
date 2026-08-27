@@ -4,6 +4,7 @@ import com.secureasset.backend.dto.GlobalAuditLogDto;
 import com.secureasset.backend.dto.PageResponse;
 import com.secureasset.backend.entity.AuditLog;
 import com.secureasset.backend.repository.AuditLogRepository;
+import com.secureasset.backend.repository.DemoDatasetRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -21,9 +22,11 @@ import java.util.stream.Collectors;
 public class AuditLogQueryService {
 
     private final AuditLogRepository auditLogRepository;
+    private final DemoDatasetRepository demoDatasetRepository;
 
-    public AuditLogQueryService(AuditLogRepository auditLogRepository) {
+    public AuditLogQueryService(AuditLogRepository auditLogRepository, DemoDatasetRepository demoDatasetRepository) {
         this.auditLogRepository = auditLogRepository;
+        this.demoDatasetRepository = demoDatasetRepository;
     }
 
     public PageResponse<GlobalAuditLogDto> searchAuditLogs(
@@ -32,11 +35,16 @@ public class AuditLogQueryService {
             int page,
             int size
     ) {
+        if (!demoDatasetRepository.existsById(DatasetService.DEMO_DATASET_ID)) {
+            return new PageResponse<>(List.of(), 0, size, 0, 0);
+        }
+
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
 
         AuditLog.EventType eventTypeEnum = eventType != null && !eventType.trim().isEmpty() ? AuditLog.EventType.valueOf(eventType) : null;
 
-        Page<AuditLog> logPage = auditLogRepository.searchAuditLogs(eventTypeEnum, caseId, pageable);
+        Page<AuditLog> logPage = auditLogRepository.searchAuditLogsScoped(
+                DatasetService.DEMO_DATASET_ID, eventTypeEnum, caseId, pageable);
 
         List<GlobalAuditLogDto> content = logPage.getContent().stream()
                 .map(this::mapToDto)

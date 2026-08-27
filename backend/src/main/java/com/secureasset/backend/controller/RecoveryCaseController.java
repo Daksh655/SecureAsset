@@ -18,10 +18,12 @@ public class RecoveryCaseController {
 
     private final RecoveryCaseService recoveryCaseService;
     private final com.secureasset.backend.service.RecoveryActionExecutionService recoveryActionExecutionService;
+    private final com.secureasset.backend.service.RevenueRiskEvaluationService revenueRiskEvaluationService;
 
-    public RecoveryCaseController(RecoveryCaseService recoveryCaseService, com.secureasset.backend.service.RecoveryActionExecutionService recoveryActionExecutionService) {
+    public RecoveryCaseController(RecoveryCaseService recoveryCaseService, com.secureasset.backend.service.RecoveryActionExecutionService recoveryActionExecutionService, com.secureasset.backend.service.RevenueRiskEvaluationService revenueRiskEvaluationService) {
         this.recoveryCaseService = recoveryCaseService;
         this.recoveryActionExecutionService = recoveryActionExecutionService;
+        this.revenueRiskEvaluationService = revenueRiskEvaluationService;
     }
 
     @GetMapping
@@ -41,6 +43,11 @@ public class RecoveryCaseController {
     @GetMapping("/{id}")
     public RecoveryCaseDetailDto getCaseDetails(@PathVariable UUID id) {
         return recoveryCaseService.getCaseDetails(id);
+    }
+
+    @PostMapping("/{id}/investigate")
+    public RecoveryCaseDetailDto investigateCase(@PathVariable UUID id) {
+        return recoveryCaseService.investigateCase(id);
     }
 
     @GetMapping("/{id}/actions")
@@ -108,6 +115,18 @@ public class RecoveryCaseController {
             return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).body(new ApiResponse(false, e.getMessage()));
         } catch (Exception e) {
             return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR).body(new ApiResponse(false, "Internal server error"));
+        }
+    }
+
+    @PostMapping("/generate")
+    public org.springframework.http.ResponseEntity<?> generateRecoveryCases() {
+        try {
+            int count = revenueRiskEvaluationService.evaluateDemoFailedPayments(
+                    com.secureasset.backend.service.DatasetService.DEMO_DATASET_ID);
+            return org.springframework.http.ResponseEntity.ok(java.util.Map.of("message", "Generated " + count + " cases"));
+        } catch (Exception e) {
+            return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(java.util.Map.of("error", e.getMessage()));
         }
     }
 }

@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { getDashboardMetrics } from '../api/dashboardApi';
 import type { DashboardMetricsDto } from '../api/dashboardApi';
+import { getDatasetStatus } from '../api/datasetApi';
+import type { DatasetStatus } from '../api/datasetApi';
 import { ApiError } from '../api/client';
 import { formatCurrency, formatPercentage, formatNumber } from '../utils/formatters';
 import { ErrorState } from '../components/ui/ErrorState';
@@ -10,15 +12,23 @@ import './Overview.css';
 
 export const Overview: React.FC = () => {
   const [metrics, setMetrics] = useState<DashboardMetricsDto | null>(null);
+  const [datasetStatus, setDatasetStatus] = useState<DatasetStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchMetrics = async () => {
+  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+  const [isGenerateDialogOpen, setIsGenerateDialogOpen] = useState(false);
+
+  const fetchData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await getDashboardMetrics();
-      setMetrics(data);
+      const [metricsData, datasetData] = await Promise.all([
+        getDashboardMetrics(),
+        getDatasetStatus()
+      ]);
+      setMetrics(metricsData);
+      setDatasetStatus(datasetData);
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);
@@ -31,7 +41,14 @@ export const Overview: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchMetrics();
+    fetchData();
+
+    const handleDatasetChanged = () => {
+      fetchData();
+    };
+
+    window.addEventListener('dataset-changed', handleDatasetChanged);
+    return () => window.removeEventListener('dataset-changed', handleDatasetChanged);
   }, []);
 
   const renderContent = () => {
@@ -49,7 +66,7 @@ export const Overview: React.FC = () => {
     }
 
     if (error) {
-      return <ErrorState message={error} onRetry={fetchMetrics} />;
+      return <ErrorState message={error} onRetry={fetchData} />;
     }
 
     if (!metrics) {
@@ -87,17 +104,17 @@ export const Overview: React.FC = () => {
         </div>
         <div className="metric-card">
           <p className="metric-label">Recovery Rate</p>
-          <p className="metric-value text-accent-blue">{formatPercentage(metrics.recoveryRate)}</p>
+          <p className="metric-value">{formatPercentage(metrics.recoveryRate)}</p>
         </div>
 
         {/* ROW 3 */}
         <div className="metric-card">
           <p className="metric-label">High Priority</p>
-          <p className="metric-value text-accent-red">{formatNumber(metrics.highPriorityCases)}</p>
+          <p className="metric-value">{formatNumber(metrics.highPriorityCases)}</p>
         </div>
         <div className="metric-card">
           <p className="metric-label">Medium Priority</p>
-          <p className="metric-value text-accent-orange">{formatNumber(metrics.mediumPriorityCases)}</p>
+          <p className="metric-value">{formatNumber(metrics.mediumPriorityCases)}</p>
         </div>
         <div className="metric-card">
           <p className="metric-label">Low Priority</p>
@@ -107,16 +124,13 @@ export const Overview: React.FC = () => {
     );
   };
 
-  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
-  const [isGenerateDialogOpen, setIsGenerateDialogOpen] = useState(false);
-
-  const isDatasetActive = metrics && metrics.transactionsAnalyzed > 0;
+  const isDatasetActive = datasetStatus && datasetStatus.active;
 
   return (
     <div className="page-container">
       <div className="hero-section">
         <div className="hero-content">
-          <h1 className="display-heading">Recover revenue intelligently.</h1>
+          <h1 className="hero-title">Recover revenue intelligently.</h1>
           <p className="hero-subtitle">
             SecureAsset identifies payment failures, evaluates recovery risk, investigates cases using AI, and executes governed recovery actions.
           </p>
@@ -130,15 +144,17 @@ export const Overview: React.FC = () => {
           {isDatasetActive ? (
             <div className="dataset-stats">
               <div className="dataset-stat-row">
-                <span className="dataset-stat-value">{formatNumber(metrics.transactionsAnalyzed)}</span>
+                <span className="dataset-stat-value">{formatNumber(datasetStatus.transactionCount || 0)}</span>
                 <span className="dataset-stat-label">transactions</span>
               </div>
               <div className="dataset-stat-row">
-                <span className="dataset-stat-value">{formatNumber(metrics.recoveryOpportunities)}</span>
+                <span className="dataset-stat-value">{formatNumber(datasetStatus.recoveryOpportunityCount || 0)}</span>
                 <span className="dataset-stat-label">recovery opportunities</span>
               </div>
               <div className="dataset-stat-row">
-                <span className="dataset-stat-label">Generated today</span>
+                <span className="dataset-stat-label">
+                  Generated {datasetStatus.generatedAt ? new Date(datasetStatus.generatedAt).toLocaleDateString() : 'today'}
+                </span>
               </div>
               <button 
                 className="dataset-action-btn secondary"
@@ -149,6 +165,9 @@ export const Overview: React.FC = () => {
             </div>
           ) : (
             <div className="dataset-stats empty">
+              <div className="dataset-stat-row" style={{ textAlign: 'center', marginBottom: '16px', color: 'var(--text-secondary)' }}>
+                <span>NO ACTIVE DATASET</span>
+              </div>
               <div className="dataset-stat-row">
                 <span className="dataset-stat-label">Transactions generated</span>
                 <span className="dataset-stat-value">0</span>
@@ -161,7 +180,7 @@ export const Overview: React.FC = () => {
                 className="dataset-action-btn primary"
                 onClick={() => setIsGenerateDialogOpen(true)}
               >
-                Generate New Dataset
+                New Dataset
               </button>
             </div>
           )}

@@ -8,8 +8,19 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface PaymentRepository extends JpaRepository<Payment, UUID> {
+
+    @Modifying
+    @Query("DELETE FROM Payment p WHERE p.customer.dataset.id = :datasetId")
+    void deleteByCustomerDatasetId(@Param("datasetId") UUID datasetId);
+
+    long countByCustomerDatasetId(UUID datasetId);
+
+    Page<Payment> findByStatusAndCustomerDatasetId(Payment.PaymentStatus status, UUID datasetId, Pageable pageable);
 
     Optional<Payment> findByRazorpayPaymentId(String razorpayPaymentId);
 
