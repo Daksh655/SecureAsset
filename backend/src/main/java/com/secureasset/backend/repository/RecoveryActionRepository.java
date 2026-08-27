@@ -22,4 +22,14 @@ public interface RecoveryActionRepository
     );
 
     RecoveryAction findByRazorpayReference(String razorpayReference);
+
+    @org.springframework.data.jpa.repository.Query("SELECT r FROM RecoveryAction r WHERE " +
+           "(:status IS NULL OR r.status = :status) AND " +
+           "(:approvalStatus IS NULL OR r.approvalStatus = :approvalStatus) AND " +
+           "(:actionType IS NULL OR r.actionType = :actionType)")
+    org.springframework.data.domain.Page<RecoveryAction> searchActions(
+            @org.springframework.data.repository.query.Param("status") RecoveryAction.Status status,
+            @org.springframework.data.repository.query.Param("approvalStatus") RecoveryAction.ApprovalStatus approvalStatus,
+            @org.springframework.data.repository.query.Param("actionType") RecoveryAction.ActionType actionType,
+            org.springframework.data.domain.Pageable pageable);
 }
