@@ -60,6 +60,31 @@ public class RecoveryCaseController {
         return recoveryCaseService.getCaseAuditLogs(id);
     }
 
+    public record ProposeActionRequestDto(
+            String actionType,
+            BigDecimal amount
+    ) {}
+
+    @PostMapping("/{id}/actions")
+    public RecoveryActionDto proposeAction(@PathVariable UUID id, @RequestBody ProposeActionRequestDto request) {
+        com.secureasset.backend.entity.RecoveryAction action = recoveryActionExecutionService.proposeAction(
+            id, 
+            com.secureasset.backend.entity.RecoveryAction.ActionType.valueOf(request.actionType()), 
+            request.amount()
+        );
+        return new RecoveryActionDto(
+            action.getId(),
+            action.getActionType().name(),
+            action.getAmount(),
+            action.getStatus().name(),
+            action.getApprovalStatus().name(),
+            action.getRazorpayReference(),
+            action.getResult(),
+            action.getRequestedAt(),
+            action.getExecutedAt()
+        );
+    }
+
     public record ApproveRequestDto(
             String actionType,
             BigDecimal amount

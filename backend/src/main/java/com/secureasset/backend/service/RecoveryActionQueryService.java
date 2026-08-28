@@ -22,10 +22,12 @@ public class RecoveryActionQueryService {
 
     private final RecoveryActionRepository recoveryActionRepository;
     private final DemoDatasetRepository demoDatasetRepository;
+    private final com.secureasset.backend.repository.RecoveryCaseRepository recoveryCaseRepository;
 
-    public RecoveryActionQueryService(RecoveryActionRepository recoveryActionRepository, DemoDatasetRepository demoDatasetRepository) {
+    public RecoveryActionQueryService(RecoveryActionRepository recoveryActionRepository, DemoDatasetRepository demoDatasetRepository, com.secureasset.backend.repository.RecoveryCaseRepository recoveryCaseRepository) {
         this.recoveryActionRepository = recoveryActionRepository;
         this.demoDatasetRepository = demoDatasetRepository;
+        this.recoveryCaseRepository = recoveryCaseRepository;
     }
 
     public PageResponse<RecoveryActionSummaryDto> searchActions(
@@ -48,9 +50,31 @@ public class RecoveryActionQueryService {
         Page<RecoveryAction> actionPage = recoveryActionRepository.searchActionsScoped(
                 DatasetService.DEMO_DATASET_ID, statusEnum, approvalStatusEnum, actionTypeEnum, pageable);
 
-        List<RecoveryActionSummaryDto> content = actionPage.getContent().stream()
+        List<RecoveryActionSummaryDto> content = new ArrayList<>(actionPage.getContent().stream()
                 .map(this::mapToDto)
+                .collect(Collectors.toList()));
+
+        if (statusEnum == null && approvalStatusEnum == RecoveryAction.ApprovalStatus.PENDING) {
+            List<com.secureasset.backend.entity.RecoveryCase> escalatedCases = recoveryCaseRepository.findByStatus(com.secureasset.backend.entity.RecoveryCase.Status.ACTION_REQUIRED).stream()
+                .filter(c -> c.getCustomer() != null && DatasetService.DEMO_DATASET_ID.equals(c.getCustomer().getDataset().getId()))
+                .filter(c -> c.getAgentRecommendation() == com.secureasset.backend.entity.RecoveryCase.AgentRecommendation.ESCALATE_TO_MERCHANT)
                 .collect(Collectors.toList());
+            
+            for (com.secureasset.backend.entity.RecoveryCase rc : escalatedCases) {
+                // Synthesize an action for the UI
+                content.add(new RecoveryActionSummaryDto(
+                    null, // no action id yet
+                    rc.getId(),
+                    "ESCALATE_TO_MERCHANT",
+                    rc.getRiskAmount(),
+                    "PENDING",
+                    "PENDING",
+                    null,
+                    rc.getAnalyzedAt() != null ? rc.getAnalyzedAt() : rc.getDetectedAt(),
+                    null, null, null, null, null
+                ));
+            }
+        }
 
         return new PageResponse<>(
                 content,

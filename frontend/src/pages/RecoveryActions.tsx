@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getRecoveryActions, approveRecoveryAction, rejectRecoveryAction } from '../api/recoveryActionsApi';
 import type { RecoveryActionSummaryDto, PageResponse } from '../api/recoveryActionsApi';
+import { getRecoveryCase } from '../api/recoveryCasesApi';
+import { fetchClient } from '../api/client';
 import { ErrorState } from '../components/ui/ErrorState';
 import { EmptyState } from '../components/ui/EmptyState';
 import { StatusBadge } from '../components/ui/StatusBadge';
@@ -21,10 +23,14 @@ export const RecoveryActions: React.FC = () => {
 
   // Dialog state
   const [selectedAction, setSelectedAction] = useState<RecoveryActionSummaryDto | null>(null);
-  const [reviewMode, setReviewMode] = useState<'APPROVE' | 'REJECT' | null>(null);
+  const [reviewMode, setReviewMode] = useState<'APPROVE' | 'REJECT' | 'ESCALATE' | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
+
+  // Escalate Modal state
+  const [escalatedCase, setEscalatedCase] = useState<any | null>(null);
+  const [isFetchingCase, setIsFetchingCase] = useState(false);
 
   const tabs = ['Pending Approval', 'Executing', 'Completed', 'Failed', 'Rejected'];
 
@@ -102,6 +108,39 @@ export const RecoveryActions: React.FC = () => {
     setReviewMode(null);
     setRejectReason('');
     setDialogError(null);
+    setEscalatedCase(null);
+  };
+
+  const handleReviewCase = async (action: RecoveryActionSummaryDto) => {
+    setIsFetchingCase(true);
+    setDialogError(null);
+    try {
+      const caseDetail = await getRecoveryCase(action.recoveryCaseId);
+      setEscalatedCase(caseDetail);
+    } catch (err: any) {
+      setDialogError(err.message || 'Failed to fetch case details');
+    } finally {
+      setIsFetchingCase(false);
+    }
+  };
+
+  const handleCreatePaymentLink = async () => {
+    if (!escalatedCase) return;
+    try {
+      setIsSubmitting(true);
+      setDialogError(null);
+      await fetchClient(`/api/recovery-cases/${escalatedCase.id}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actionType: 'CREATE_PAYMENT_LINK', amount: escalatedCase.riskAmount })
+      });
+      closeDialog();
+      fetchActions(currentPage, activeTab);
+    } catch (err: any) {
+      setDialogError(err.message || 'Failed to create action');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const renderContent = () => {
@@ -207,19 +246,30 @@ export const RecoveryActions: React.FC = () => {
 
               {activeTab === 'Pending Approval' && action.approvalStatus === 'PENDING' && (
                 <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
-                  <button 
-                    className="dataset-action-btn" 
-                    style={{ background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
-                    onClick={() => { setSelectedAction(action); setReviewMode('REJECT'); }}
-                  >
-                    Reject
-                  </button>
-                  <button 
-                    className="dataset-action-btn primary"
-                    onClick={() => { setSelectedAction(action); setReviewMode('APPROVE'); }}
-                  >
-                    Review
-                  </button>
+                  {action.actionType === 'ESCALATE_TO_MERCHANT' ? (
+                    <button 
+                      className="dataset-action-btn primary"
+                      onClick={() => { setSelectedAction(action); setReviewMode('ESCALATE'); handleReviewCase(action); }}
+                    >
+                      Review Case
+                    </button>
+                  ) : (
+                    <>
+                      <button 
+                        className="dataset-action-btn" 
+                        style={{ background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                        onClick={() => { setSelectedAction(action); setReviewMode('REJECT'); }}
+                      >
+                        Reject
+                      </button>
+                      <button 
+                        className="dataset-action-btn primary"
+                        onClick={() => { setSelectedAction(action); setReviewMode('APPROVE'); }}
+                      >
+                        Review
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -278,25 +328,76 @@ export const RecoveryActions: React.FC = () => {
       {selectedAction && reviewMode && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: 'var(--bg-primary)', padding: '2rem', borderRadius: 'var(--radius-lg)', width: '100%', maxWidth: '500px', boxShadow: 'var(--shadow-lg)' }}>
-            <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>
-              {reviewMode === 'APPROVE' ? 'Approve Action' : 'Reject Action'}
-            </h2>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
-              Action: <strong style={{ color: 'var(--text-primary)' }}>{selectedAction.actionType.replace(/_/g, ' ')}</strong><br/>
-              Amount: <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(selectedAction.amount)}</strong><br/>
-              Case ID: {selectedAction.recoveryCaseId}
-            </p>
+            {reviewMode === 'ESCALATE' ? (
+              <>
+                <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Review Escalated Case</h2>
+                {isFetchingCase || !escalatedCase ? (
+                  <p>Loading case details...</p>
+                ) : (
+                  <div style={{ maxHeight: '60vh', overflowY: 'auto', marginBottom: '1.5rem', paddingRight: '0.5rem' }}>
+                    <div style={{ marginBottom: '1rem' }}>
+                      <strong>Case ID:</strong> {escalatedCase.id}<br/>
+                      <strong>Status:</strong> {escalatedCase.status}<br/>
+                      <strong>Problem Type:</strong> {escalatedCase.problemType.replace(/_/g, ' ')}<br/>
+                      <strong>Risk Amount:</strong> {formatCurrency(escalatedCase.riskAmount)}<br/>
+                    </div>
+                    <div style={{ marginBottom: '1rem' }}>
+                      <strong>Customer:</strong> {escalatedCase.customer.name} ({escalatedCase.customer.email})
+                    </div>
+                    {escalatedCase.order && (
+                      <div style={{ marginBottom: '1rem' }}>
+                        <strong>Order Amount:</strong> {formatCurrency(escalatedCase.order.amount, escalatedCase.order.currency)}<br/>
+                        <strong>Order Status:</strong> {escalatedCase.order.status}
+                      </div>
+                    )}
+                    {escalatedCase.payment && (
+                      <div style={{ marginBottom: '1rem' }}>
+                        <strong>Payment Status:</strong> {escalatedCase.payment.status}<br/>
+                        <strong>Failure Reason:</strong> {escalatedCase.payment.failureReason}
+                      </div>
+                    )}
+                    <div style={{ marginBottom: '1rem', background: 'var(--bg-tertiary)', padding: '1rem', borderRadius: 'var(--radius-md)' }}>
+                      <strong>AI Recommendation:</strong> {escalatedCase.agentRecommendation}<br/>
+                      <strong>AI Confidence:</strong> {escalatedCase.agentConfidence}%<br/>
+                      <strong>AI Rationale:</strong> {escalatedCase.agentReason}
+                    </div>
+                    <div style={{ marginTop: '1.5rem' }}>
+                      <h3 style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>Choose Recovery Action</h3>
+                      <button 
+                        className="dataset-action-btn primary"
+                        style={{ width: '100%', marginBottom: '0.5rem' }}
+                        onClick={handleCreatePaymentLink}
+                        disabled={isSubmitting}
+                      >
+                        {isSubmitting ? 'Processing...' : 'Create Payment Link'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>
+                  {reviewMode === 'APPROVE' ? 'Approve Action' : 'Reject Action'}
+                </h2>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+                  Action: <strong style={{ color: 'var(--text-primary)' }}>{selectedAction.actionType.replace(/_/g, ' ')}</strong><br/>
+                  Amount: <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(selectedAction.amount)}</strong><br/>
+                  Case ID: {selectedAction.recoveryCaseId}
+                </p>
 
-            {reviewMode === 'REJECT' && (
-              <div style={{ marginBottom: '1.5rem' }}>
-                <label style={{ display: 'block', fontSize: '0.875rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Reason (optional)</label>
-                <textarea 
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                  style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', minHeight: '80px' }}
-                  placeholder="Enter rejection reason..."
-                />
-              </div>
+                {reviewMode === 'REJECT' && (
+                  <div style={{ marginBottom: '1.5rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.875rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Reason (optional)</label>
+                    <textarea 
+                      value={rejectReason}
+                      onChange={(e) => setRejectReason(e.target.value)}
+                      style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', minHeight: '80px' }}
+                      placeholder="Enter rejection reason..."
+                    />
+                  </div>
+                )}
+              </>
             )}
 
             {dialogError && (
@@ -312,16 +413,18 @@ export const RecoveryActions: React.FC = () => {
                 disabled={isSubmitting}
                 style={{ background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
               >
-                Cancel
+                {reviewMode === 'ESCALATE' ? 'Close' : 'Cancel'}
               </button>
-              <button 
-                className={`dataset-action-btn primary`}
-                onClick={reviewMode === 'APPROVE' ? handleApprove : handleReject}
-                disabled={isSubmitting}
-                style={reviewMode === 'REJECT' ? { background: 'var(--error-color)', borderColor: 'var(--error-color)' } : {}}
-              >
-                {isSubmitting ? 'Processing...' : reviewMode === 'APPROVE' ? 'Confirm Approval' : 'Confirm Rejection'}
-              </button>
+              {reviewMode !== 'ESCALATE' && (
+                <button 
+                  className={`dataset-action-btn primary`}
+                  onClick={reviewMode === 'APPROVE' ? handleApprove : handleReject}
+                  disabled={isSubmitting}
+                  style={reviewMode === 'REJECT' ? { background: 'var(--error-color)', borderColor: 'var(--error-color)' } : {}}
+                >
+                  {isSubmitting ? 'Processing...' : reviewMode === 'APPROVE' ? 'Confirm Approval' : 'Confirm Rejection'}
+                </button>
+              )}
             </div>
           </div>
         </div>

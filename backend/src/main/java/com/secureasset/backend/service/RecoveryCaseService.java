@@ -33,19 +33,22 @@ public class RecoveryCaseService {
     private final PaymentRepository paymentRepository;
     private final DemoDatasetRepository demoDatasetRepository;
     private final com.secureasset.backend.agent.AgentService agentService;
+    private final RecoveryActionExecutionService recoveryActionExecutionService;
 
     public RecoveryCaseService(RecoveryCaseRepository recoveryCaseRepository,
                                RecoveryActionRepository recoveryActionRepository,
                                AuditLogRepository auditLogRepository,
                                PaymentRepository paymentRepository,
                                DemoDatasetRepository demoDatasetRepository,
-                               com.secureasset.backend.agent.AgentService agentService) {
+                               com.secureasset.backend.agent.AgentService agentService,
+                               RecoveryActionExecutionService recoveryActionExecutionService) {
         this.recoveryCaseRepository = recoveryCaseRepository;
         this.recoveryActionRepository = recoveryActionRepository;
         this.auditLogRepository = auditLogRepository;
         this.paymentRepository = paymentRepository;
         this.demoDatasetRepository = demoDatasetRepository;
         this.agentService = agentService;
+        this.recoveryActionExecutionService = recoveryActionExecutionService;
     }
 
     private boolean isDatasetActive() {
@@ -113,9 +116,19 @@ public class RecoveryCaseService {
         rc.setAgentConfidence(java.math.BigDecimal.valueOf(recommendation.confidence()));
         rc.setAgentReason(recommendation.reason());
         rc.setAnalyzedAt(java.time.OffsetDateTime.now());
-        rc.setStatus(RecoveryCase.Status.ACTION_REQUIRED); // Or leave it alone, but ACTION_REQUIRED makes sense
+        rc.setStatus(RecoveryCase.Status.ACTION_REQUIRED);
 
         rc = recoveryCaseRepository.save(rc);
+
+        if (recommendation.action() != RecoveryCase.AgentRecommendation.ESCALATE_TO_MERCHANT &&
+            recommendation.action() != RecoveryCase.AgentRecommendation.NO_ACTION) {
+            
+            com.secureasset.backend.entity.RecoveryAction.ActionType actionType = 
+                com.secureasset.backend.entity.RecoveryAction.ActionType.valueOf(recommendation.action().name());
+                
+            recoveryActionExecutionService.proposeAction(id, actionType, rc.getRiskAmount());
+        }
+
         return mapToDetailDto(rc);
     }
 

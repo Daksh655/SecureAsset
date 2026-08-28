@@ -329,6 +329,25 @@ export const RecoveryCaseDetail: React.FC = () => {
 
   const renderRecoveryTab = () => {
     if (actionsData.length === 0) {
+      if (caseData.agentRecommendation === 'ESCALATE_TO_MERCHANT') {
+        return (
+          <div className="empty-state" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
+            <h2 style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>AI Recommendation</h2>
+            <div style={{ fontSize: '1.125rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '1rem' }}>
+              ESCALATE TO MERCHANT
+            </div>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+              Human review required.
+            </p>
+            <button 
+              className="dataset-action-btn primary" 
+              onClick={() => navigate('/actions?tab=Pending+Approval')}
+            >
+              Review in Recovery Actions
+            </button>
+          </div>
+        );
+      }
       return (
         <div className="empty-state">
           <p>No recovery actions have been initiated yet.</p>
@@ -359,6 +378,28 @@ export const RecoveryCaseDetail: React.FC = () => {
                   <span className="detail-label">Reference:</span> {action.razorpayReference}
                 </div>
               )}
+              {action.actionType === 'CREATE_PAYMENT_LINK' && action.result && (
+                <div className="action-detail" style={{ marginTop: '0.5rem' }}>
+                  <div style={{ marginBottom: '0.25rem' }}><strong>Payment Link</strong></div>
+                  <a href={action.result} target="_blank" rel="noopener noreferrer" style={{ wordBreak: 'break-all', color: 'var(--brand-primary)', textDecoration: 'underline' }}>
+                    {action.result}
+                  </a>
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <a href={action.result} target="_blank" rel="noopener noreferrer" className="dataset-action-btn primary" style={{ display: 'inline-block', textDecoration: 'none', padding: '0.5rem 1rem' }}>
+                      Open Payment Link
+                    </a>
+                  </div>
+                </div>
+              )}
+              <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+                <button 
+                  className="dataset-action-btn"
+                  style={{ background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                  onClick={() => navigate('/actions')}
+                >
+                  View Recovery Action
+                </button>
+              </div>
             </div>
           </div>
         ))}
