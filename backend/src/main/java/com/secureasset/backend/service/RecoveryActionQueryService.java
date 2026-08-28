@@ -5,6 +5,7 @@ import com.secureasset.backend.dto.RecoveryActionSummaryDto;
 import com.secureasset.backend.entity.RecoveryAction;
 import com.secureasset.backend.repository.RecoveryActionRepository;
 import com.secureasset.backend.repository.DemoDatasetRepository;
+import com.secureasset.backend.repository.RecoveryCaseRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -22,9 +23,9 @@ public class RecoveryActionQueryService {
 
     private final RecoveryActionRepository recoveryActionRepository;
     private final DemoDatasetRepository demoDatasetRepository;
-    private final com.secureasset.backend.repository.RecoveryCaseRepository recoveryCaseRepository;
+    private final RecoveryCaseRepository recoveryCaseRepository;
 
-    public RecoveryActionQueryService(RecoveryActionRepository recoveryActionRepository, DemoDatasetRepository demoDatasetRepository, com.secureasset.backend.repository.RecoveryCaseRepository recoveryCaseRepository) {
+    public RecoveryActionQueryService(RecoveryActionRepository recoveryActionRepository, DemoDatasetRepository demoDatasetRepository, RecoveryCaseRepository recoveryCaseRepository) {
         this.recoveryActionRepository = recoveryActionRepository;
         this.demoDatasetRepository = demoDatasetRepository;
         this.recoveryCaseRepository = recoveryCaseRepository;
@@ -55,15 +56,12 @@ public class RecoveryActionQueryService {
                 .collect(Collectors.toList()));
 
         if (statusEnum == null && approvalStatusEnum == RecoveryAction.ApprovalStatus.PENDING) {
-            List<com.secureasset.backend.entity.RecoveryCase> escalatedCases = recoveryCaseRepository.findByStatus(com.secureasset.backend.entity.RecoveryCase.Status.ACTION_REQUIRED).stream()
-                .filter(c -> c.getCustomer() != null && DatasetService.DEMO_DATASET_ID.equals(c.getCustomer().getDataset().getId()))
-                .filter(c -> c.getAgentRecommendation() == com.secureasset.backend.entity.RecoveryCase.AgentRecommendation.ESCALATE_TO_MERCHANT)
-                .collect(Collectors.toList());
+            List<com.secureasset.backend.entity.RecoveryCase> escalatedCases =
+                recoveryCaseRepository.findEscalatedCasesWithNoAction(DatasetService.DEMO_DATASET_ID);
             
             for (com.secureasset.backend.entity.RecoveryCase rc : escalatedCases) {
-                // Synthesize an action for the UI
                 content.add(new RecoveryActionSummaryDto(
-                    null, // no action id yet
+                    null,
                     rc.getId(),
                     "ESCALATE_TO_MERCHANT",
                     rc.getRiskAmount(),

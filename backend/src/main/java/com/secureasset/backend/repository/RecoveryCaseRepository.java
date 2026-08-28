@@ -1,6 +1,7 @@
 package com.secureasset.backend.repository;
 
 import com.secureasset.backend.entity.RecoveryCase;
+import com.secureasset.backend.entity.RecoveryAction;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -64,4 +65,9 @@ public interface RecoveryCaseRepository extends JpaRepository<RecoveryCase, UUID
             @Param("maxAmount") BigDecimal maxAmount,
             @Param("minScore") Integer minScore,
             org.springframework.data.domain.Pageable pageable);
+    @Query("SELECT r FROM RecoveryCase r WHERE " +
+           "r.customer.dataset.id = :datasetId AND " +
+           "r.agentRecommendation = com.secureasset.backend.entity.RecoveryCase.AgentRecommendation.ESCALATE_TO_MERCHANT AND " +
+           "NOT EXISTS (SELECT a FROM RecoveryAction a WHERE a.recoveryCase = r)")
+    List<RecoveryCase> findEscalatedCasesWithNoAction(@Param("datasetId") UUID datasetId);
 }
