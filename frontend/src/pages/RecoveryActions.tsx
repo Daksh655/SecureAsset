@@ -263,6 +263,24 @@ export const RecoveryActions: React.FC = () => {
                 </div>
               )}
 
+              {action.actionType === 'CREATE_PAYMENT_LINK' && action.result && action.result.startsWith('http') && (
+                <div style={{ marginTop: '1rem', padding: '1rem', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}>
+                  <div style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.5rem' }}>Payment Link</div>
+                  <div style={{ fontSize: '0.875rem', fontFamily: 'monospace', marginBottom: '1rem', wordBreak: 'break-all', color: 'var(--text-secondary)' }}>
+                    {action.result}
+                  </div>
+                  <a 
+                    href={action.result} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="dataset-action-btn primary"
+                    style={{ textDecoration: 'none', display: 'inline-block' }}
+                  >
+                    Open Payment Link
+                  </a>
+                </div>
+              )}
+
               {activeTab === 'Pending Approval' && action.approvalStatus === 'PENDING' && (
                 <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
                   {action.actionType === 'ESCALATE_TO_MERCHANT' ? (

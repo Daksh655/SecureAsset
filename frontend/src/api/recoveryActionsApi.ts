@@ -11,6 +11,7 @@ export interface RecoveryActionSummaryDto {
   status: string;
   approvalStatus: string;
   razorpayReference: string;
+  result: string | null;
   requestedAt: string;
   approvedAt: string;
   executedAt: string;

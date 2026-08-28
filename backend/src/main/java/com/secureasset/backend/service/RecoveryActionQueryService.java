@@ -71,6 +71,7 @@ public class RecoveryActionQueryService {
                     "PENDING",
                     "PENDING",
                     null,
+                    null,
                     rc.getAnalyzedAt() != null ? rc.getAnalyzedAt() : rc.getDetectedAt(),
                     null, null, null, null, null
                 ));
@@ -95,6 +96,7 @@ public class RecoveryActionQueryService {
                 action.getStatus().name(),
                 action.getApprovalStatus().name(),
                 action.getRazorpayReference(),
+                action.getResult(),
                 action.getRequestedAt(),
                 action.getApprovedAt(),
                 action.getExecutedAt(),

@@ -148,7 +148,7 @@ public class RecoveryActionExecutionService {
     }
 
     @Transactional
-    public void approveActionByCase(UUID caseId, RecoveryAction.ActionType actionType, BigDecimal amount) {
+    public UUID approveActionByCase(UUID caseId, RecoveryAction.ActionType actionType, BigDecimal amount) {
         RecoveryAction pendingAction = actionRepository.findByRecoveryCaseId(caseId).stream()
                 .filter(a -> a.getStatus() == RecoveryAction.Status.PENDING)
                 .findFirst()
@@ -159,6 +159,7 @@ public class RecoveryActionExecutionService {
         }
 
         self.approveAction(pendingAction.getId());
+        return pendingAction.getId();
     }
 
     @Transactional

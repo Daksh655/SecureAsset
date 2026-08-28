@@ -12,6 +12,7 @@ public record RecoveryActionSummaryDto(
         String status,
         String approvalStatus,
         String razorpayReference,
+        String result,
         OffsetDateTime requestedAt,
         OffsetDateTime approvedAt,
         OffsetDateTime executedAt,

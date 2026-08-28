@@ -72,6 +72,11 @@ public class RecoveryCaseController {
             com.secureasset.backend.entity.RecoveryAction.ActionType.valueOf(request.actionType()), 
             request.amount()
         );
+        
+        if (action.getStatus() == com.secureasset.backend.entity.RecoveryAction.Status.APPROVED) {
+            recoveryActionExecutionService.executeAction(action.getId());
+            // Re-fetch action to get the updated status/result after execution
+        }
         return new RecoveryActionDto(
             action.getId(),
             action.getActionType().name(),
@@ -111,8 +116,12 @@ public class RecoveryCaseController {
             com.secureasset.backend.entity.RecoveryAction.ActionType type = 
                     com.secureasset.backend.entity.RecoveryAction.ActionType.valueOf(request.actionType());
 
-            recoveryActionExecutionService.approveActionByCase(id, type, request.amount());
-            return org.springframework.http.ResponseEntity.ok(new ApiResponse(true, "Action approved successfully"));
+            UUID actionId = recoveryActionExecutionService.approveActionByCase(id, type, request.amount());
+            
+            // Execute the action now that it is approved
+            recoveryActionExecutionService.executeAction(actionId);
+            
+            return org.springframework.http.ResponseEntity.ok(new ApiResponse(true, "Action approved and execution started successfully"));
         } catch (IllegalArgumentException e) {
             return org.springframework.http.ResponseEntity.badRequest().body(new ApiResponse(false, e.getMessage()));
         } catch (IllegalStateException e) {
