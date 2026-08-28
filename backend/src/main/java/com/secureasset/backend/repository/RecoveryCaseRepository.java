@@ -67,7 +67,9 @@ public interface RecoveryCaseRepository extends JpaRepository<RecoveryCase, UUID
             org.springframework.data.domain.Pageable pageable);
     @Query("SELECT r FROM RecoveryCase r WHERE " +
            "r.customer.dataset.id = :datasetId AND " +
-           "r.agentRecommendation = com.secureasset.backend.entity.RecoveryCase.AgentRecommendation.ESCALATE_TO_MERCHANT AND " +
+           "r.agentRecommendation = :recommendation AND " +
            "NOT EXISTS (SELECT a FROM RecoveryAction a WHERE a.recoveryCase = r)")
-    List<RecoveryCase> findEscalatedCasesWithNoAction(@Param("datasetId") UUID datasetId);
+    List<RecoveryCase> findEscalatedCasesWithNoAction(
+            @Param("datasetId") UUID datasetId,
+            @Param("recommendation") RecoveryCase.AgentRecommendation recommendation);
 }

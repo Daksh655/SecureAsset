@@ -3,6 +3,7 @@ package com.secureasset.backend.service;
 import com.secureasset.backend.dto.PageResponse;
 import com.secureasset.backend.dto.RecoveryActionSummaryDto;
 import com.secureasset.backend.entity.RecoveryAction;
+import com.secureasset.backend.entity.RecoveryCase;
 import com.secureasset.backend.repository.RecoveryActionRepository;
 import com.secureasset.backend.repository.DemoDatasetRepository;
 import com.secureasset.backend.repository.RecoveryCaseRepository;
@@ -56,10 +57,12 @@ public class RecoveryActionQueryService {
                 .collect(Collectors.toList()));
 
         if (statusEnum == null && approvalStatusEnum == RecoveryAction.ApprovalStatus.PENDING) {
-            List<com.secureasset.backend.entity.RecoveryCase> escalatedCases =
-                recoveryCaseRepository.findEscalatedCasesWithNoAction(DatasetService.DEMO_DATASET_ID);
+            List<RecoveryCase> escalatedCases =
+                recoveryCaseRepository.findEscalatedCasesWithNoAction(
+                    DatasetService.DEMO_DATASET_ID,
+                    RecoveryCase.AgentRecommendation.ESCALATE_TO_MERCHANT);
             
-            for (com.secureasset.backend.entity.RecoveryCase rc : escalatedCases) {
+            for (RecoveryCase rc : escalatedCases) {
                 content.add(new RecoveryActionSummaryDto(
                     null,
                     rc.getId(),
