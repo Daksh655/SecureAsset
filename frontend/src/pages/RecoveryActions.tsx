@@ -143,6 +143,25 @@ export const RecoveryActions: React.FC = () => {
     }
   };
 
+  const handleProposeAction = async (actionType: string) => {
+    if (!escalatedCase) return;
+    try {
+      setIsSubmitting(true);
+      setDialogError(null);
+      await fetchClient(`/api/recovery-cases/${escalatedCase.id}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actionType, amount: escalatedCase.riskAmount })
+      });
+      closeDialog();
+      fetchActions(currentPage, activeTab);
+    } catch (err: any) {
+      setDialogError(err.message || 'Failed to create action');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const renderContent = () => {
     if (loading && !data) {
       return (
@@ -363,14 +382,23 @@ export const RecoveryActions: React.FC = () => {
                     </div>
                     <div style={{ marginTop: '1.5rem' }}>
                       <h3 style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>Choose Recovery Action</h3>
-                      <button 
-                        className="dataset-action-btn primary"
-                        style={{ width: '100%', marginBottom: '0.5rem' }}
-                        onClick={handleCreatePaymentLink}
-                        disabled={isSubmitting}
-                      >
-                        {isSubmitting ? 'Processing...' : 'Create Payment Link'}
-                      </button>
+                      {[
+                        { type: 'CREATE_PAYMENT_LINK',     label: 'Create Payment Link' },
+                        { type: 'RETRY_PAYMENT',           label: 'Retry Payment' },
+                        { type: 'SEND_RECOVERY_REMINDER',  label: 'Send Recovery Reminder' },
+                        { type: 'NO_ACTION',               label: 'No Action' },
+                        { type: 'ESCALATE',                label: 'Escalate' },
+                      ].map(({ type, label }) => (
+                        <button
+                          key={type}
+                          className="dataset-action-btn primary"
+                          style={{ width: '100%', marginBottom: '0.5rem' }}
+                          onClick={type === 'CREATE_PAYMENT_LINK' ? handleCreatePaymentLink : () => handleProposeAction(type)}
+                          disabled={isSubmitting}
+                        >
+                          {isSubmitting ? 'Processing...' : label}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}
