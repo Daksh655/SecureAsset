@@ -36,7 +36,7 @@ class RecoveryActionControllerTest {
     void shouldReturnPaginatedActions() throws Exception {
         UUID actionId = UUID.randomUUID();
         RecoveryActionSummaryDto dto = new RecoveryActionSummaryDto(
-                actionId, UUID.randomUUID(), "CREATE_PAYMENT_LINK", BigDecimal.TEN, "PENDING", "PENDING", null, OffsetDateTime.now(), null, null, null, null, null
+                actionId, UUID.randomUUID(), "CREATE_PAYMENT_LINK", BigDecimal.TEN, "PENDING", "PENDING", null, null, OffsetDateTime.now(), null, null, null, null, null
         );
 
         PageResponse<RecoveryActionSummaryDto> pageResponse = new PageResponse<>(

@@ -466,7 +466,7 @@ export const RecoveryActions: React.FC = () => {
                   className={`dataset-action-btn primary`}
                   onClick={reviewMode === 'APPROVE' ? handleApprove : handleReject}
                   disabled={isSubmitting}
-                  style={reviewMode === 'REJECT' ? { background: 'var(--error-color)', borderColor: 'var(--error-color)' } : {}}
+                  style={reviewMode === 'REJECT' ? { background: 'var(--accent-red)', borderColor: 'var(--accent-red)' } : {}}
                 >
                   {isSubmitting ? 'Processing...' : reviewMode === 'APPROVE' ? 'Confirm Approval' : 'Confirm Rejection'}
                 </button>
