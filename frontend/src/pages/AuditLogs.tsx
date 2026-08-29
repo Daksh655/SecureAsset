@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { getGlobalAuditLogs } from '../api/auditLogsApi';
-import type { GlobalAuditLogDto } from '../api/auditLogsApi';
+import { useSearchParams } from 'react-router-dom';
+import { getGlobalAuditLogs, getCaseAuditLogs } from '../api/auditLogsApi';
+import type { GlobalAuditLogDto, AuditLogDto } from '../api/auditLogsApi';
 import type { PageResponse } from '../api/recoveryCasesApi';
 import { ErrorState } from '../components/ui/ErrorState';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -16,36 +16,151 @@ const EVENT_TYPES = [
   'CASE_EXPIRED', 'WEBHOOK_RECEIVED', 'WEBHOOK_SIGNATURE_VERIFIED',
   'WEBHOOK_DUPLICATE_IGNORED', 'PAYMENT_LINK_PAID', 'PAYMENT_LINK_PARTIALLY_PAID',
   'PAYMENT_LINK_CANCELLED', 'PAYMENT_LINK_EXPIRED', 'RECOVERY_CASE_RECOVERED',
-  'WEBHOOK_RECONCILIATION_FAILED'
+  'WEBHOOK_RECONCILIATION_FAILED',
 ];
 
+const eventTypeColor = (eventType: string): string => {
+  if (eventType.startsWith('TOOL_FAILED') || eventType.startsWith('RECOVERY_FAILED')) return 'var(--error-color)';
+  if (eventType.startsWith('RAZORPAY') || eventType.startsWith('PAYMENT_LINK_PAID') || eventType.startsWith('RECOVERY_CASE_RECOVERED')) return 'var(--success-color)';
+  if (eventType.startsWith('ACTION_APPROVED')) return 'var(--success-color)';
+  if (eventType.startsWith('ACTION_REJECTED')) return 'var(--error-color)';
+  return 'var(--brand-primary)';
+};
+
+// ── Case Detail Panel ──────────────────────────────────────────────────────────
+
+interface CaseDetailPanelProps {
+  caseId: string;
+  onBack: () => void;
+}
+
+const CaseDetailPanel: React.FC<CaseDetailPanelProps> = ({ caseId, onBack }) => {
+  const [logs, setLogs] = useState<AuditLogDto[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    getCaseAuditLogs(caseId)
+      .then(setLogs)
+      .catch((err: any) => setError(err.message || 'Failed to load audit events'))
+      .finally(() => setLoading(false));
+  }, [caseId]);
+
+  return (
+    <div className="page-container">
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
+        <button
+          onClick={onBack}
+          style={{
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border-color)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '0.5rem 1rem',
+            cursor: 'pointer',
+            color: 'var(--text-primary)',
+            fontSize: '0.875rem',
+          }}
+        >
+          ← Back to Audit Logs
+        </button>
+        <div>
+          <h1 className="display-heading" style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>
+            Case Audit History
+          </h1>
+          <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+            {caseId}
+          </p>
+        </div>
+      </div>
+
+      {loading && (
+        <div className="timeline skeleton-pulse">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="timeline-item">
+              <div className="timeline-marker"></div>
+              <div className="timeline-content" style={{ padding: '1.5rem', borderRadius: 'var(--radius-md)' }}>
+                <div className="skeleton-text-sm"></div>
+                <div className="skeleton-text-lg" style={{ marginTop: '0.5rem', height: '1.5rem', width: '50%' }}></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {error && <ErrorState message={error} onRetry={() => {
+        setLoading(true);
+        setError(null);
+        getCaseAuditLogs(caseId).then(setLogs).catch((e: any) => setError(e.message)).finally(() => setLoading(false));
+      }} />}
+
+      {!loading && !error && logs !== null && logs.length === 0 && (
+        <EmptyState title="No Audit Events" message="No audit events have been recorded for this case." />
+      )}
+
+      {!loading && !error && logs !== null && logs.length > 0 && (
+        <div className="timeline">
+          {logs.map(log => {
+            const color = eventTypeColor(log.eventType);
+            return (
+              <div key={log.id} className="timeline-item">
+                <div className="timeline-marker" style={{ borderColor: color, backgroundColor: log.success ? 'var(--success-light)' : 'var(--error-light)' }}></div>
+                <div className="timeline-content" style={{ padding: '1.5rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        {formatDate(log.createdAt)}
+                      </span>
+                      <h3 style={{ fontSize: '1.125rem', fontWeight: 600, color, marginTop: '0.25rem' }}>
+                        {log.eventType}
+                      </h3>
+                    </div>
+                    <span style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', borderRadius: '4px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
+                      {log.actorType}
+                    </span>
+                  </div>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', lineHeight: '1.5', marginBottom: log.toolName ? '0.75rem' : 0 }}>
+                    {log.message}
+                  </p>
+                  {log.toolName && (
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      Tool: <strong style={{ color: 'var(--text-primary)' }}>{log.toolName}</strong>
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Main Audit Logs Page ───────────────────────────────────────────────────────
+
 export const AuditLogs: React.FC = () => {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  
+
   const eventTypeParam = searchParams.get('eventType') || '';
   const caseIdParam = searchParams.get('caseId') || '';
   const currentPage = parseInt(searchParams.get('page') || '0', 10);
+  // When a case is selected for drill-down
+  const selectedCaseId = searchParams.get('selectedCase') || '';
 
   const [data, setData] = useState<PageResponse<GlobalAuditLogDto> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Expanded details tracking
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const fetchLogs = useCallback(async (page: number, eventType: string, caseId: string) => {
     try {
       setLoading(true);
       setError(null);
-      
-      const params: Record<string, any> = {
-        page,
-        size: 20
-      };
+      const params: Record<string, any> = { page, size: 20 };
       if (eventType) params.eventType = eventType;
       if (caseId) params.caseId = caseId;
-
       const result = await getGlobalAuditLogs(params);
       setData(result);
     } catch (err: any) {
@@ -56,32 +171,45 @@ export const AuditLogs: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    fetchLogs(currentPage, eventTypeParam, caseIdParam);
-  }, [currentPage, eventTypeParam, caseIdParam, fetchLogs]);
+    if (!selectedCaseId) {
+      fetchLogs(currentPage, eventTypeParam, caseIdParam);
+    }
+  }, [currentPage, eventTypeParam, caseIdParam, fetchLogs, selectedCaseId]);
 
   const updateFilters = (key: string, value: string) => {
     const newParams = new URLSearchParams(searchParams);
-    if (value) {
-      newParams.set(key, value);
-    } else {
-      newParams.delete(key);
-    }
-    // Reset page to 0 on filter change
-    if (key !== 'page') {
-      newParams.set('page', '0');
-    }
+    if (value) newParams.set(key, value);
+    else newParams.delete(key);
+    if (key !== 'page') newParams.set('page', '0');
+    setSearchParams(newParams);
+  };
+
+  const openCaseDetail = (caseId: string) => {
+    const newParams = new URLSearchParams(searchParams);
+    newParams.set('selectedCase', caseId);
+    setSearchParams(newParams);
+  };
+
+  const closeCaseDetail = () => {
+    const newParams = new URLSearchParams(searchParams);
+    newParams.delete('selectedCase');
     setSearchParams(newParams);
   };
 
   const toggleExpand = (id: string) => {
     setExpandedIds(prev => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   };
 
+  // ── Show Case Detail panel when a case is selected ──
+  if (selectedCaseId) {
+    return <CaseDetailPanel caseId={selectedCaseId} onBack={closeCaseDetail} />;
+  }
+
+  // ── Global audit log list ──
   const renderContent = () => {
     if (loading && !data) {
       return (
@@ -104,12 +232,7 @@ export const AuditLogs: React.FC = () => {
     }
 
     if (!data || data.content.length === 0) {
-      return (
-        <EmptyState 
-          title="No Events Found" 
-          message="No audit events match the current filters."
-        />
-      );
+      return <EmptyState title="No Events Found" message="No audit events match the current filters." />;
     }
 
     return (
@@ -120,6 +243,7 @@ export const AuditLogs: React.FC = () => {
             const markerColor = isSuccess ? 'var(--success-color)' : 'var(--error-color)';
             const markerBg = isSuccess ? 'var(--success-light)' : 'var(--error-light)';
             const isExpanded = expandedIds.has(log.id);
+            const color = eventTypeColor(log.eventType);
 
             return (
               <div key={log.id} className="timeline-item">
@@ -130,11 +254,11 @@ export const AuditLogs: React.FC = () => {
                       <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         {formatDate(log.createdAt)}
                       </span>
-                      <h3 style={{ fontSize: '1.125rem', fontWeight: 600, color: 'var(--text-primary)', marginTop: '0.25rem' }}>
+                      <h3 style={{ fontSize: '1.125rem', fontWeight: 600, color, marginTop: '0.25rem' }}>
                         {log.eventType}
                       </h3>
                     </div>
-                    <span className="badge-agent-status" style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', borderRadius: '4px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)' }}>
+                    <span style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', borderRadius: '4px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
                       {log.actorType}
                     </span>
                   </div>
@@ -143,19 +267,26 @@ export const AuditLogs: React.FC = () => {
                     {log.message}
                   </p>
 
-                  <div style={{ display: 'flex', gap: '1rem', fontSize: '0.875rem' }}>
+                  <div style={{ display: 'flex', gap: '1rem', fontSize: '0.875rem', flexWrap: 'wrap' }}>
                     {log.recoveryCaseId && (
-                      <span>Case: <a href={`/recovery-cases/${log.recoveryCaseId}`} onClick={(e) => { e.preventDefault(); navigate(`/recovery-cases/${log.recoveryCaseId}`); }} style={{ color: 'var(--brand-primary)', textDecoration: 'none' }}>{log.recoveryCaseId.substring(0, 8)}</a></span>
+                      <span>
+                        Case:{' '}
+                        <button
+                          onClick={() => openCaseDetail(log.recoveryCaseId!)}
+                          style={{ background: 'none', border: 'none', color: 'var(--brand-primary)', cursor: 'pointer', padding: 0, fontSize: '0.875rem', textDecoration: 'underline' }}
+                        >
+                          {log.recoveryCaseId.substring(0, 8)}…
+                        </button>
+                      </span>
                     )}
                     {log.toolName && (
                       <span>Tool: <strong style={{ color: 'var(--text-primary)' }}>{log.toolName}</strong></span>
                     )}
                   </div>
 
-                  {/* Note: In Phase 2, detailed JSON payloads like inputData/outputData are not fully exposed to avoid leaking secrets, but if we need a details toggle for long messages or future data, it goes here */}
                   {log.message.length > 200 && (
                     <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
-                      <button 
+                      <button
                         onClick={() => toggleExpand(log.id)}
                         style={{ background: 'none', border: 'none', color: 'var(--brand-primary)', cursor: 'pointer', fontSize: '0.875rem', padding: 0 }}
                       >
@@ -176,8 +307,8 @@ export const AuditLogs: React.FC = () => {
 
         {data.totalPages > 1 && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2rem', padding: '1rem 0', borderTop: '1px solid var(--border-color)' }}>
-            <button 
-              className="dataset-action-btn" 
+            <button
+              className="dataset-action-btn"
               disabled={currentPage === 0 || loading}
               onClick={() => updateFilters('page', String(currentPage - 1))}
               style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}
@@ -185,10 +316,10 @@ export const AuditLogs: React.FC = () => {
               Previous
             </button>
             <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-              Page {currentPage + 1} of {data.totalPages}
+              Page {currentPage + 1} of {data.totalPages} · {data.totalElements} events
             </span>
-            <button 
-              className="dataset-action-btn" 
+            <button
+              className="dataset-action-btn"
               disabled={currentPage >= data.totalPages - 1 || loading}
               onClick={() => updateFilters('page', String(currentPage + 1))}
               style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}
@@ -209,18 +340,16 @@ export const AuditLogs: React.FC = () => {
       </div>
 
       <div className="toolbar" style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
-        <select 
+        <select
           value={eventTypeParam}
           onChange={(e) => updateFilters('eventType', e.target.value)}
           style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)', minWidth: '200px' }}
         >
           <option value="">All Event Types</option>
-          {EVENT_TYPES.map(t => (
-            <option key={t} value={t}>{t}</option>
-          ))}
+          {EVENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
 
-        <input 
+        <input
           type="text"
           placeholder="Filter by Case ID..."
           value={caseIdParam}
@@ -228,7 +357,7 @@ export const AuditLogs: React.FC = () => {
           style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)', minWidth: '300px' }}
         />
 
-        <button 
+        <button
           className="dataset-action-btn"
           onClick={() => fetchLogs(currentPage, eventTypeParam, caseIdParam)}
           disabled={loading}
@@ -237,6 +366,12 @@ export const AuditLogs: React.FC = () => {
           {loading ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>
+
+      {!loading && data && (
+        <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+          Click a <strong>Case ID</strong> link on any event to view the full audit history for that case.
+        </p>
+      )}
 
       {renderContent()}
     </div>

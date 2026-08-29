@@ -33,7 +33,22 @@ export const getGlobalAuditLogs = async (
   }
 
   const queryString = query.toString();
-  const url = queryString ? "/api/audit-logs?${queryString}" : '/api/audit-logs';
+  const url = queryString ? `/api/audit-logs?${queryString}` : '/api/audit-logs';
   
   return fetchClient(url);
 };
+
+export interface AuditLogDto {
+  id: string;
+  eventType: string;
+  actorType: string;
+  toolName: string | null;
+  message: string;
+  success: boolean;
+  createdAt: string;
+}
+
+export const getCaseAuditLogs = async (caseId: string): Promise<AuditLogDto[]> => {
+  return fetchClient(`/api/recovery-cases/${caseId}/audit`);
+};
+
