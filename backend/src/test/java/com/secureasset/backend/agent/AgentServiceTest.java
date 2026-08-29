@@ -55,9 +55,13 @@ public class AgentServiceTest {
         // Mock fluent toolCallbacks registration
         when(mockPromptSpec.toolCallbacks(any(org.springframework.ai.tool.ToolCallback[].class))).thenReturn(mockPromptSpec);
         
+        // Mock fluent options registration
+        when(mockPromptSpec.options(any(org.springframework.ai.chat.prompt.ChatOptions.Builder.class))).thenReturn(mockPromptSpec);
+        
         when(mockPromptSpec.call()).thenReturn(mockCallResponseSpec);
 
         agentService = new AgentService(mockBuilder, mockToolRegistry, mockRecoveryCaseRepository, mockAuditLogRepository, mockRecoveryActionRepository);
+
     }
 
     @Test 
@@ -113,6 +117,7 @@ public class AgentServiceTest {
         when(mockCallResponseSpec.entity(AgentRecommendation.class))
             .thenThrow(new RuntimeException("Parsing error"));
 
+        // With the fallback loop, all models fail → final IllegalStateException thrown
         assertThatThrownBy(() -> agentService.investigateCase(recoveryCase))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Failed to generate or parse valid structured output from AI Agent");
@@ -132,9 +137,10 @@ public class AgentServiceTest {
         when(mockCallResponseSpec.entity(AgentRecommendation.class))
             .thenReturn(badRec);
 
+        // Validation failure is treated as a model failure → all models exhaust → final IllegalStateException
         assertThatThrownBy(() -> agentService.investigateCase(recoveryCase))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Confidence out of bounds");
+                .hasMessageContaining("Failed to generate or parse valid structured output from AI Agent");
     }
 
     @Test
@@ -151,9 +157,10 @@ public class AgentServiceTest {
         when(mockCallResponseSpec.entity(AgentRecommendation.class))
             .thenReturn(badRec);
 
+        // Validation failure → all models exhaust → final IllegalStateException
         assertThatThrownBy(() -> agentService.investigateCase(recoveryCase))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Missing structured recommendation action");
+                .hasMessageContaining("Failed to generate or parse valid structured output from AI Agent");
     }
 
     @Test
@@ -164,6 +171,7 @@ public class AgentServiceTest {
         when(mockCallResponseSpec.entity(AgentRecommendation.class))
             .thenThrow(new RuntimeException("Read timed out"));
 
+        // All models fail with timeout → final IllegalStateException thrown
         assertThatThrownBy(() -> agentService.investigateCase(recoveryCase))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Failed to generate or parse valid structured output from AI Agent");
@@ -413,4 +421,174 @@ public class AgentServiceTest {
         assertThat(rec.action()).isEqualTo(RecoveryCase.AgentRecommendation.ESCALATE_TO_MERCHANT);
         assertThat(rec.reason()).contains("Conflicting active recovery action");
     }
+
+    // ============================================================
+    // FALLBACK CHAIN TESTS (Tests 1-6 from spec)
+    // ============================================================
+
+    /**
+     * Helper to create a minimal RecoveryCase stub that passes all pre-checks.
+     */
+    private RecoveryCase minimalEligibleCase() {
+        RecoveryCase rc = new RecoveryCase();
+        rc.setId(UUID.randomUUID());
+        rc.setEligibility(RecoveryCase.Eligibility.ELIGIBLE);
+        rc.setRiskAmount(new BigDecimal("5000.00"));
+        when(mockRecoveryCaseRepository.findById(rc.getId())).thenReturn(java.util.Optional.of(rc));
+        when(mockRecoveryActionRepository.findByRecoveryCaseId(rc.getId())).thenReturn(List.of());
+        return rc;
+    }
+
+    /**
+     * TEST 1 — Model 1 succeeds: only model 1 is called; its recommendation is returned.
+     */
+    @Test
+    void fallbackTest1_firstModelSucceeds() {
+        RecoveryCase rc = minimalEligibleCase();
+
+        AgentRecommendation expected = new AgentRecommendation(
+                RecoveryCase.AgentRecommendation.CREATE_PAYMENT_LINK, 90, "Model1 result", List.of());
+        when(mockCallResponseSpec.entity(AgentRecommendation.class)).thenReturn(expected);
+
+        // Override fallback list so we can count invocations cleanly
+        agentService.setFallbackModels(List.of("model-1", "model-2", "model-3", "model-4"));
+
+        AgentRecommendation result = agentService.investigateRecoveryCase(rc.getId());
+
+        assertThat(result.action()).isEqualTo(RecoveryCase.AgentRecommendation.CREATE_PAYMENT_LINK);
+        assertThat(result.reason()).isEqualTo("Model1 result");
+
+        // options() must be called exactly once (for model-1) — model-2,3,4 never reached
+        org.mockito.Mockito.verify(mockPromptSpec, org.mockito.Mockito.times(1))
+                .options(any(org.springframework.ai.chat.prompt.ChatOptions.Builder.class));
+    }
+
+    /**
+     * TEST 2 — Model 1 fails (429), Model 2 succeeds. Model 3 and 4 never called.
+     */
+    @Test
+    void fallbackTest2_firstFailsSecondSucceeds() {
+        RecoveryCase rc = minimalEligibleCase();
+        agentService.setFallbackModels(List.of("model-1", "model-2", "model-3", "model-4"));
+
+        AgentRecommendation model2Rec = new AgentRecommendation(
+                RecoveryCase.AgentRecommendation.SEND_RECOVERY_REMINDER, 80, "Model2 result", List.of());
+
+        // First call to entity() throws (model-1 fails), second returns the good result (model-2)
+        when(mockCallResponseSpec.entity(AgentRecommendation.class))
+                .thenThrow(new RuntimeException("429 RESOURCE_EXHAUSTED"))
+                .thenReturn(model2Rec);
+
+        AgentRecommendation result = agentService.investigateRecoveryCase(rc.getId());
+
+        assertThat(result.action()).isEqualTo(RecoveryCase.AgentRecommendation.SEND_RECOVERY_REMINDER);
+        assertThat(result.reason()).isEqualTo("Model2 result");
+
+        // options() called twice: model-1, model-2 — model-3 and model-4 never reached
+        org.mockito.Mockito.verify(mockPromptSpec, org.mockito.Mockito.times(2))
+                .options(any(org.springframework.ai.chat.prompt.ChatOptions.Builder.class));
+    }
+
+    /**
+     * TEST 3 — Model 1 fails, Model 2 fails, Model 3 succeeds. Model 4 never called.
+     */
+    @Test
+    void fallbackTest3_twoFailThirdSucceeds() {
+        RecoveryCase rc = minimalEligibleCase();
+        agentService.setFallbackModels(List.of("model-1", "model-2", "model-3", "model-4"));
+
+        AgentRecommendation model3Rec = new AgentRecommendation(
+                RecoveryCase.AgentRecommendation.RETRY_PAYMENT, 75, "Model3 result", List.of());
+
+        when(mockCallResponseSpec.entity(AgentRecommendation.class))
+                .thenThrow(new RuntimeException("model-1 fail"))
+                .thenThrow(new RuntimeException("model-2 fail"))
+                .thenReturn(model3Rec);
+
+        AgentRecommendation result = agentService.investigateRecoveryCase(rc.getId());
+
+        assertThat(result.action()).isEqualTo(RecoveryCase.AgentRecommendation.RETRY_PAYMENT);
+        assertThat(result.reason()).isEqualTo("Model3 result");
+
+        // options() called three times — model-4 never reached
+        org.mockito.Mockito.verify(mockPromptSpec, org.mockito.Mockito.times(3))
+                .options(any(org.springframework.ai.chat.prompt.ChatOptions.Builder.class));
+    }
+
+    /**
+     * TEST 4 — All four models fail → existing ESCALATE_TO_MERCHANT fallback returned.
+     */
+    @Test
+    void fallbackTest4_allModelsFail_escalatesToMerchant() {
+        RecoveryCase rc = minimalEligibleCase();
+        agentService.setFallbackModels(List.of("model-1", "model-2", "model-3", "model-4"));
+
+        when(mockCallResponseSpec.entity(AgentRecommendation.class))
+                .thenThrow(new RuntimeException("model-1 fail"))
+                .thenThrow(new RuntimeException("model-2 fail"))
+                .thenThrow(new RuntimeException("model-3 fail"))
+                .thenThrow(new RuntimeException("model-4 fail"));
+
+        // The outer investigateRecoveryCase catches the exception and escalates
+        AgentRecommendation result = agentService.investigateRecoveryCase(rc.getId());
+
+        assertThat(result.action()).isEqualTo(RecoveryCase.AgentRecommendation.ESCALATE_TO_MERCHANT);
+
+        // All four models were tried exactly once each
+        org.mockito.Mockito.verify(mockPromptSpec, org.mockito.Mockito.times(4))
+                .options(any(org.springframework.ai.chat.prompt.ChatOptions.Builder.class));
+    }
+
+    /**
+     * TEST 5 — Non-AI application error (DB record not found) is NOT silently
+     * converted into a model fallback attempt. The orElseThrow() in
+     * investigateRecoveryCase fires before investigateCase is ever reached,
+     * so the IllegalArgumentException propagates uncaught — no model is tried.
+     */
+    @Test
+    void fallbackTest5_nonAiErrorIsNotSilentlyRetried() {
+        UUID unknownId = UUID.randomUUID();
+        // Repository returns empty → IllegalArgumentException inside investigateRecoveryCase
+        when(mockRecoveryCaseRepository.findById(unknownId)).thenReturn(java.util.Optional.empty());
+
+        // The DB error propagates as IllegalArgumentException — it is NOT swallowed
+        // by the fallback loop because it fires before investigateCase() is entered.
+        assertThatThrownBy(() -> agentService.investigateRecoveryCase(unknownId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("RecoveryCase not found");
+
+        // No model was ever attempted (options() never called)
+        org.mockito.Mockito.verify(mockPromptSpec, org.mockito.Mockito.never())
+                .options(any(org.springframework.ai.chat.prompt.ChatOptions.Builder.class));
+    }
+
+    /**
+     * TEST 6 — Successful first model returns the same AgentRecommendation
+     * structure (all fields present) as before the fallback refactor.
+     */
+    @Test
+    void fallbackTest6_successfulModelReturnsFullRecommendationStructure() {
+        RecoveryCase rc = minimalEligibleCase();
+        agentService.setFallbackModels(List.of("gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"));
+
+        AgentRecommendation expected = new AgentRecommendation(
+                RecoveryCase.AgentRecommendation.CREATE_PAYMENT_LINK,
+                88,
+                "Payment link recommended due to repeated failure",
+                List.of("payment_status=FAILED", "attempt=2"));
+
+        when(mockCallResponseSpec.entity(AgentRecommendation.class)).thenReturn(expected);
+
+        AgentRecommendation result = agentService.investigateRecoveryCase(rc.getId());
+
+        assertThat(result.action()).isEqualTo(RecoveryCase.AgentRecommendation.CREATE_PAYMENT_LINK);
+        assertThat(result.confidence()).isEqualTo(88);
+        assertThat(result.reason()).isEqualTo("Payment link recommended due to repeated failure");
+        assertThat(result.evidence()).containsExactly("payment_status=FAILED", "attempt=2");
+
+        // Only one model attempt
+        org.mockito.Mockito.verify(mockPromptSpec, org.mockito.Mockito.times(1))
+                .options(any(org.springframework.ai.chat.prompt.ChatOptions.Builder.class));
+    }
 }
+

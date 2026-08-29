@@ -24,6 +24,9 @@ public class AgentService {
     private final com.secureasset.backend.repository.AuditLogRepository auditLogRepository;
     private final com.secureasset.backend.repository.RecoveryActionRepository recoveryActionRepository;
 
+    @org.springframework.beans.factory.annotation.Value("${ai.fallback.models:gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-2.5-flash}")
+    private java.util.List<String> fallbackModels = java.util.Arrays.asList("gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash");
+
     public AgentService(
             ChatClient.Builder chatClientBuilder, 
             com.secureasset.backend.agent.tools.AgentToolRegistry toolRegistry,
@@ -52,6 +55,11 @@ public class AgentService {
                         "- the model must not invent customer/payment information"
                 )
                 .build();
+    }
+
+    /** Package-visible setter used by unit tests to inject a custom model list. */
+    void setFallbackModels(java.util.List<String> models) {
+        this.fallbackModels = models;
     }
 
     public AgentRecommendation investigateRecoveryCase(java.util.UUID recoveryCaseId) {
@@ -166,43 +174,52 @@ public class AgentService {
         String prompt = "Investigate the following recovery case and provide a structured recommendation.\n" +
                 "Context Facts:\n" + facts.toString();
 
-        try {
-            org.springframework.ai.chat.client.ChatClient.ChatClientRequestSpec promptSpec = chatClient.prompt().user(prompt);
-            
-            AtomicInteger toolCallCount = new AtomicInteger(0);
-            Map<String, Object> toolCache = new HashMap<>();
+        Exception lastException = null;
 
-            // Dynamically register bounded tools
-            for (com.secureasset.backend.agent.tools.AgentTool<?, ?> tool : toolRegistry.getAllTools().values()) {
-                promptSpec = registerBoundedTool(promptSpec, tool, toolCallCount, toolCache, recoveryCase);
-            }
+        for (String model : fallbackModels) {
+            log.info("Attempting AI investigation with model={} for caseId={}", model, recoveryCase.getId());
+            try {
+                org.springframework.ai.chat.client.ChatClient.ChatClientRequestSpec promptSpec = chatClient.prompt().user(prompt);
+                
+                // Override model for this attempt
+                promptSpec = promptSpec.options(org.springframework.ai.chat.prompt.ChatOptions.builder().model(model));
+                
+                AtomicInteger toolCallCount = new AtomicInteger(0);
+                Map<String, Object> toolCache = new HashMap<>();
 
-            AgentRecommendation recommendation = promptSpec
-                    .call()
-                    .entity(AgentRecommendation.class);
+                // Dynamically register bounded tools
+                for (com.secureasset.backend.agent.tools.AgentTool<?, ?> tool : toolRegistry.getAllTools().values()) {
+                    promptSpec = registerBoundedTool(promptSpec, tool, toolCallCount, toolCache, recoveryCase);
+                }
 
-            if (recommendation == null || recommendation.action() == null) {
-                throw new IllegalStateException("Missing structured recommendation action");
-            }
-            if (recommendation.confidence() == null || recommendation.confidence() < 0 || recommendation.confidence() > 100) {
-                throw new IllegalStateException("Confidence out of bounds: " + recommendation.confidence());
-            }
-            if (recommendation.reason() != null && recommendation.reason().length() > MAX_REASON_LENGTH) {
-                throw new IllegalStateException("Reason length exceeds maximum allowed");
-            }
-            if (recommendation.evidence() != null && recommendation.evidence().size() > MAX_EVIDENCE_ITEMS) {
-                throw new IllegalStateException("Evidence items exceed maximum allowed");
-            }
+                AgentRecommendation recommendation = promptSpec
+                        .call()
+                        .entity(AgentRecommendation.class);
 
-            log.info("Recommendation generated for caseId={}: action={}", recoveryCase.getId(), recommendation.action());
-            return recommendation;
-        } catch (IllegalStateException e) {
-            log.error("Validation failure for caseId={}", recoveryCase.getId(), e);
-            throw e;
-        } catch (Exception e) {
-            log.error("Model failure for caseId={}", recoveryCase.getId(), e);
-            throw new IllegalStateException("Failed to generate or parse valid structured output from AI Agent", e);
+                if (recommendation == null || recommendation.action() == null) {
+                    throw new IllegalStateException("Missing structured recommendation action");
+                }
+                if (recommendation.confidence() == null || recommendation.confidence() < 0 || recommendation.confidence() > 100) {
+                    throw new IllegalStateException("Confidence out of bounds: " + recommendation.confidence());
+                }
+                if (recommendation.reason() != null && recommendation.reason().length() > MAX_REASON_LENGTH) {
+                    throw new IllegalStateException("Reason length exceeds maximum allowed");
+                }
+                if (recommendation.evidence() != null && recommendation.evidence().size() > MAX_EVIDENCE_ITEMS) {
+                    throw new IllegalStateException("Evidence items exceed maximum allowed");
+                }
+
+                log.info("Recommendation generated by model={} for caseId={}: action={}", model, recoveryCase.getId(), recommendation.action());
+                return recommendation;
+            } catch (Exception e) {
+                log.warn("Model {} failed for caseId={}. Exception: {}", model, recoveryCase.getId(), e.getMessage());
+                lastException = e;
+                // Continue to next model
+            }
         }
+
+        log.error("All fallback models failed for caseId={}", recoveryCase.getId(), lastException);
+        throw new IllegalStateException("Failed to generate or parse valid structured output from AI Agent", lastException);
     }
 
     private <I, O> org.springframework.ai.chat.client.ChatClient.ChatClientRequestSpec registerBoundedTool(
