@@ -258,7 +258,7 @@ Execution / Result
 Webhook / Payment Outcome
 ```
 
-```markdown
+
 ## Screenshots
 
 ### Overview
@@ -275,7 +275,7 @@ Webhook / Payment Outcome
 
 ### Audit Trail
 ![Audit Trail](docs/images/Audit-Trail.JPG)
-```
+
 
 ## Challenges & Solutions
 ### 1. Gemini quota failures
