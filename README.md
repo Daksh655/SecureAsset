@@ -72,7 +72,8 @@ AI investigates and recommends
 -> Audit trail records what happened
 
 ## End-to-End Workflow
-![SecureAsset End-to-End Recovery Flow](docs/Master-Flow.JPG)
+![SecureAsset End-to-End Recovery Flow](docs/images/Master-Flow.JPG)
+
 Detect → Understand → Govern → Recover → Prove
 
 
@@ -114,7 +115,7 @@ Synthetic demo records are explicitly associated with a `DemoDataset`, preventin
 
 
 ## Architecture
-
+```
 React / TypeScript
         ↓
 Spring Boot REST API
@@ -130,7 +131,7 @@ PostgreSQL     AI Agent       Razorpay
              Recovery Engine
                    ↓
                Audit Logs
-
+```
 
 ## AI Investigation
 
@@ -261,19 +262,19 @@ Webhook / Payment Outcome
 ## Screenshots
 
 ### Overview
-![Overview](docs/images/Overview.png)
+![Overview](docs/images/Overview.JPG)
 
 ### Recovery Case
-![Recovery Case](docs/images/Recovery-Case.png)
+![Recovery Case](docs/images/Recovery-Case.JPG)
 
 ### AI Investigation
-![AI Investigation](docs/images/ai-Investigation.png)
+![AI Investigation](docs/images/ai-Investigation.JPG)
 
 ### Recovery Actions
-![Recovery Actions](docs/images/Recovery-Actions.png)
+![Recovery Actions](docs/images/Recovery-Actions.JPG)
 
 ### Audit Trail
-![Audit Trail](docs/images/Audit-Trail.png)
+![Audit Trail](docs/images/Audit-Trail.JPG)
 ```
 
 ## Challenges & Solutions
