@@ -5,7 +5,7 @@ SecureAsset is an AI-assisted payment recovery platform that helps merchants inv
 
 ---
 
-## Live Demo (The deployed services run on Render's free tier, so the first request may take some time while the service wakes from inactivity.)
+## Live Demo (The deployed services run on Render's free tier, so the first request may take some time while the service wakes from inactivity)
 
 **Frontend:**  
 https://secureasset-frontend.onrender.com
@@ -309,9 +309,11 @@ Supabase PostgreSQL
 - Razorpay Test Mode
 ### Configuration
 Sensitive credentials are provided through environment variables and are not committed to the repository.
+
 ## Project Outcome
 SecureAsset demonstrates a complete governed AI recovery loop:
 **Investigate → Reason → Validate → Review → Approve → Execute → Recover → Audit**
+
 The core idea is not simply using an LLM to generate an answer.
 
 SecureAsset separates:
